@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ArrowUp, Bot, Check, ChevronDown, Copy, Eraser, Mail, ShieldCheck, Sparkles, UserPlus, X } from 'lucide-react';
+import { ArrowUp, Bot, Check, ChevronDown, Copy, Eraser, Mail, ShieldCheck, Sparkles, Square, UserPlus, X } from 'lucide-react';
 import type { ContactDTO, MessageDTO } from './types';
 import { Avatar, IconButton, gmailComposeUrl } from './ui';
 import { clsx } from './clsx';
@@ -17,9 +17,10 @@ interface Props {
   onSend: (content: string, skill?: string | null) => void;
   onClear: () => void;
   onNewContact: () => void;
+  onCancel?: () => void;
 }
 
-export function ChatPanel({ contact, messages, streaming, aiEnabled, onSend, onClear, onNewContact }: Props) {
+export function ChatPanel({ contact, messages, streaming, aiEnabled, onSend, onClear, onNewContact, onCancel }: Props) {
   const [text, setText] = useState('');
   const [skill, setSkill] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -159,14 +160,25 @@ export function ChatPanel({ contact, messages, streaming, aiEnabled, onSend, onC
               )}
             </div>
             <span className="ml-auto text-[11.5px] text-ink-3">{aiEnabled ? 'OpenAI' : 'Локал коуч'}</span>
-            <button
-              onClick={submit}
-              disabled={!text.trim() || streaming}
-              aria-label="Илгээх"
-              className="ml-2 inline-flex h-8 w-8 items-center justify-center rounded-full bg-brand text-white hover:bg-brand-600 disabled:bg-[#d5d8de]"
-            >
-              <ArrowUp className="h-4 w-4" />
-            </button>
+            {streaming ? (
+              <button
+                type="button"
+                onClick={onCancel}
+                className="ml-2 inline-flex h-8 items-center gap-1 rounded-full bg-rose-50 px-2.5 text-xs font-medium text-rose-600 hover:bg-rose-100"
+                title="Зогсоох"
+              >
+                <Square className="h-3 w-3 fill-current" /> Зогсоох
+              </button>
+            ) : (
+              <button
+                onClick={submit}
+                disabled={!text.trim()}
+                aria-label="Илгээх"
+                className="ml-2 inline-flex h-8 w-8 items-center justify-center rounded-full bg-brand text-white hover:bg-brand-600 disabled:bg-[#d5d8de]"
+              >
+                <ArrowUp className="h-4 w-4" />
+              </button>
+            )}
           </div>
         </div>
       </div>

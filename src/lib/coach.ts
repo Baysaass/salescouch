@@ -95,55 +95,70 @@ export async function streamOpenAI(
   skillId?: string | null,
 ): Promise<ReadableStream<string>> {
   const skill = skillId ? SKILL_MAP[skillId] : undefined;
-  const res = await fetch(`${process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-    body: JSON.stringify({
-      model: MODEL(),
-      stream: true,
-      temperature: 0.6,
-      messages: [
-        { role: 'system', content: systemPrompt(c, userMessage, skill) },
-        ...history.slice(-20).map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
-        { role: 'user', content: userMessage },
-      ],
-    }),
-  });
-  if (!res.ok || !res.body) {
-    const err = await res.text().catch(() => '');
-    throw new Error(`OpenAI алдаа (${res.status}): ${err.slice(0, 300)}`);
-  }
+  const abortCtrl = new AbortController();
+  const timeoutId = setTimeout(() => abortCtrl.abort(), 14000); // 14s timeout
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  return new ReadableStream<string>({
-    async pull(controller) {
-      const { done, value } = await reader.read();
-      if (done) {
-        controller.close();
-        return;
-      }
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
-      for (const line of lines) {
-        const t = line.trim();
-        if (!t.startsWith('data:')) continue;
-        const data = t.slice(5).trim();
-        if (data === '[DONE]') continue;
+  try {
+    const res = await fetch(`${process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      signal: abortCtrl.signal,
+      body: JSON.stringify({
+        model: MODEL(),
+        stream: true,
+        temperature: 0.6,
+        messages: [
+          { role: 'system', content: systemPrompt(c, userMessage, skill) },
+          ...history.slice(-20).map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
+          { role: 'user', content: userMessage },
+        ],
+      }),
+    });
+    clearTimeout(timeoutId);
+
+    if (!res.ok || !res.body) {
+      const err = await res.text().catch(() => '');
+      throw new Error(`OpenAI алдаа (${res.status}): ${err.slice(0, 300)}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    return new ReadableStream<string>({
+      async pull(controller) {
         try {
-          const delta = JSON.parse(data).choices?.[0]?.delta?.content;
-          if (delta) controller.enqueue(delta);
+          const { done, value } = await reader.read();
+          if (done) {
+            controller.close();
+            return;
+          }
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            const t = line.trim();
+            if (!t.startsWith('data:')) continue;
+            const data = t.slice(5).trim();
+            if (data === '[DONE]') continue;
+            try {
+              const delta = JSON.parse(data).choices?.[0]?.delta?.content;
+              if (delta) controller.enqueue(delta);
+            } catch {
+              /* хагас мөр */
+            }
+          }
         } catch {
-          /* хагас мөр */
+          controller.close();
         }
-      }
-    },
-    cancel() {
-      reader.cancel().catch(() => {});
-    },
-  });
+      },
+      cancel() {
+        reader.cancel().catch(() => {});
+      },
+    });
+  } catch (err) {
+    clearTimeout(timeoutId);
+    throw err;
+  }
 }
 
 /** OpenAI түлхүүргүй үед ажиллах локал дүрэмд суурилсан коуч */
@@ -248,7 +263,7 @@ export function localCoach(c: Contact, userMessage: string, skillId?: string | n
 
 /** Persona-г AI (эсвэл энгийн дүрмээр) бөглөх */
 export async function generatePersona(c: Contact): Promise<ContactPersona> {
-  if (!aiEnabled()) {
+  const ruleBased = (): ContactPersona => {
     const role = (c.role || '').toLowerCase();
     const decisionRole = /захирал|ceo|founder|эзэн|удирдах/.test(role)
       ? 'Эцсийн шийдвэр гаргагч'
@@ -259,40 +274,53 @@ export async function generatePersona(c: Contact): Promise<ContactPersona> {
           : 'Тодруулах шаардлагатай';
     return {
       ...c.persona,
-      decisionRole: c.persona.decisionRole || decisionRole,
+      decisionRole: c.persona?.decisionRole || decisionRole,
       productsOfInterest:
-        c.persona.productsOfInterest ||
+        c.persona?.productsOfInterest ||
         (matchProducts(contactText(c), 3).map((p) => p.name).join(', ') || undefined),
-      segment: c.persona.segment || (c.company ? 'Байгууллага (B2B)' : 'Хувь хүн (B2C)'),
+      segment: c.persona?.segment || (c.company ? 'Байгууллага (B2B)' : 'Хувь хүн (B2C)'),
       summary:
-        c.persona.summary ||
+        c.persona?.summary ||
         `${c.fullName}${c.role ? `, ${c.role}` : ''}${c.company ? ` — ${c.company}` : ''}. ${decisionRole}. Persona-г дэлгэрүүлэхийн тулд discovery асуулт ашиглана уу.`,
     };
+  };
+
+  if (!aiEnabled()) {
+    return ruleBased();
   }
 
-  const res = await fetch(`${process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-    body: JSON.stringify({
-      model: MODEL(),
-      temperature: 0.4,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content: `Чи даатгалын борлуулалтын шинжээч. Өгөгдсөн харилцагчийн мэдээллээс buyer persona үүсгэ. Зөвхөн JSON буцаа, түлхүүрүүд: ${PERSONA_FIELDS.map((f) => f.key).join(', ')}. Утга бүр Монгол хэлээр 1–2 өгүүлбэр. Мэдэгдэж буй утгыг хадгал, таамаг бол "(таамаг)" гэж төгсгө. productsOfInterest-д зөвхөн доорх Practical-ийн бүтээгдэхүүний нэрийг ашигла:\n${productCatalogCompact()}`,
-        },
-        { role: 'user', content: contactProfile(c) },
-      ],
-    }),
-  });
-  if (!res.ok) throw new Error(`OpenAI алдаа (${res.status})`);
-  const json = await res.json();
-  const parsed = JSON.parse(json.choices?.[0]?.message?.content || '{}') as Record<string, unknown>;
-  const out: ContactPersona = { ...c.persona };
-  for (const f of PERSONA_FIELDS) {
-    const v = parsed[f.key];
-    if (typeof v === 'string' && v.trim() && !c.persona?.[f.key]) out[f.key] = v.trim();
+  try {
+    const abortCtrl = new AbortController();
+    const timeoutId = setTimeout(() => abortCtrl.abort(), 12000);
+    const res = await fetch(`${process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      signal: abortCtrl.signal,
+      body: JSON.stringify({
+        model: MODEL(),
+        temperature: 0.4,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content: `Чи даатгалын борлуулалтын шинжээч. Өгөгдсөн харилцагчийн мэдээллээс buyer persona үүсгэ. Зөвхөн JSON буцаа, түлхүүрүүд: ${PERSONA_FIELDS.map((f) => f.key).join(', ')}. Утга бүр Монгол хэлээр 1–2 өгүүлбэр. Мэдэгдэж буй утгыг хадгал, таамаг бол "(таамаг)" гэж төгсгө. productsOfInterest-д зөвхөн доорх Practical-ийн бүтээгдэхүүний нэрийг ашигла:\n${productCatalogCompact()}`,
+          },
+          { role: 'user', content: contactProfile(c) },
+        ],
+      }),
+    });
+    clearTimeout(timeoutId);
+    if (!res.ok) throw new Error(`OpenAI алдаа (${res.status})`);
+    const json = await res.json();
+    const parsed = JSON.parse(json.choices?.[0]?.message?.content || '{}') as Record<string, unknown>;
+    const out: ContactPersona = { ...c.persona };
+    for (const f of PERSONA_FIELDS) {
+      const v = parsed[f.key];
+      if (typeof v === 'string' && v.trim() && !c.persona?.[f.key]) out[f.key] = v.trim();
+    }
+    return out;
+  } catch (err) {
+    console.warn('Persona үүсгэхэд OpenAI алдаа гарсан тул дүрэмд суурилан бөглөлөө:', (err as Error).message);
+    return ruleBased();
   }
-  return out;
 }

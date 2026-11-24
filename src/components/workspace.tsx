@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Sidebar, type View } from './sidebar';
 import { ContactList } from './contact-list';
 import { ChatPanel } from './chat-panel';
@@ -75,21 +75,42 @@ export function Workspace({ user, aiEnabled, dbMode }: Props) {
     });
   }, []);
 
+  const abortCtrlRef = useRef<AbortController | null>(null);
+
+  const cancelStreaming = useCallback(() => {
+    if (abortCtrlRef.current) {
+      abortCtrlRef.current.abort();
+      abortCtrlRef.current = null;
+    }
+    setStreaming(false);
+    setMessages((m) => m.map((x) => (x.pending ? { ...x, pending: false } : x)));
+  }, []);
+
   const send = useCallback(
     async (content: string, skill?: string | null) => {
-      if (!selectedId || streaming || !content.trim()) return;
+      if (!selectedId || !content.trim()) return;
+      if (streaming) {
+        cancelStreaming();
+      }
       const contactId = selectedId;
       const now = new Date().toISOString();
       const userMsg: MessageDTO = { id: `u-${now}`, role: 'user', content, skill: skill ?? null, createdAt: now };
       const botId = `a-${now}`;
       setMessages((m) => [...m, userMsg, { id: botId, role: 'assistant', content: '', skill: skill ?? null, createdAt: now, pending: true }]);
       setStreaming(true);
+
+      const abortCtrl = new AbortController();
+      abortCtrlRef.current = abortCtrl;
+      const timeoutId = setTimeout(() => abortCtrl.abort(), 28000);
+
       try {
         const res = await fetch(`/api/contacts/${contactId}/messages`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: abortCtrl.signal,
           body: JSON.stringify({ content, skill }),
         });
+        clearTimeout(timeoutId);
         if (!res.ok || !res.body) throw new Error((await res.json().catch(() => null))?.error || 'Хариу авч чадсангүй');
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
@@ -98,7 +119,7 @@ export function Workspace({ user, aiEnabled, dbMode }: Props) {
           const { done, value } = await reader.read();
           if (done) break;
           full += decoder.decode(value, { stream: true });
-          setMessages((m) => m.map((x) => (x.id === botId ? { ...x, content: full } : x)));
+          setMessages((m) => m.map((x) => (x.id === botId ? { ...x, content: full, pending: false } : x)));
         }
         setMessages((m) => m.map((x) => (x.id === botId ? { ...x, pending: false } : x)));
         setContacts((list) => {
@@ -107,12 +128,17 @@ export function Workspace({ user, aiEnabled, dbMode }: Props) {
           return [{ ...c, lastMessage: full, lastAt: new Date().toISOString() }, ...list.filter((x) => x.id !== contactId)];
         });
       } catch (e) {
-        setMessages((m) => m.map((x) => (x.id === botId ? { ...x, content: `> ⚠️ ${(e as Error).message}`, pending: false } : x)));
+        clearTimeout(timeoutId);
+        const isAbort = (e as Error).name === 'AbortError';
+        const msg = isAbort ? 'Хариу өгөх хугацаа хэтэрсэн тул зогслоо. Та дахин бичнэ үү.' : (e as Error).message;
+        setMessages((m) => m.map((x) => (x.id === botId ? { ...x, content: `> ⚠️ ${msg}`, pending: false } : x)));
       } finally {
+        clearTimeout(timeoutId);
+        abortCtrlRef.current = null;
         setStreaming(false);
       }
     },
-    [selectedId, streaming],
+    [selectedId, streaming, cancelStreaming],
   );
 
   // Docs / Бүтээгдэхүүн хуудаснаас ирсэн хүсэлтийг чат ачаалагдсаны дараа илгээнэ
@@ -220,6 +246,7 @@ export function Workspace({ user, aiEnabled, dbMode }: Props) {
               onSend={send}
               onClear={clearChat}
               onNewContact={() => setFormOpen(true)}
+              onCancel={cancelStreaming}
             />
 
             {selected && <ContactPanel key={selected.id} contact={selected} aiEnabled={aiEnabled} onSaved={upsertContact} onDelete={() => deleteContact(selected.id)} />}
