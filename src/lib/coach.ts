@@ -88,15 +88,16 @@ ${[...skill.steps, ...(doc?.details ?? [])].map((x) => `- ${x}`).join('\n')}
 }
 
 /** OpenAI-аас текстийн урсгал (stream) буцаана */
-export async function streamOpenAI(
+export async function* streamOpenAI(
   c: Contact,
   history: Message[],
   userMessage: string,
   skillId?: string | null,
-): Promise<ReadableStream<string>> {
+): AsyncGenerator<string, void, unknown> {
   const skill = skillId ? SKILL_MAP[skillId] : undefined;
   const abortCtrl = new AbortController();
-  const timeoutId = setTimeout(() => abortCtrl.abort(), 14000); // 14s timeout
+  // Нийт 18 секундийн timeout: хэрэв OpenAI удаан саатвал автоматаар локал коуч руу шилжинэ
+  const timeoutId = setTimeout(() => abortCtrl.abort(), 18000);
 
   try {
     const res = await fetch(`${process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'}/chat/completions`, {
@@ -114,7 +115,6 @@ export async function streamOpenAI(
         ],
       }),
     });
-    clearTimeout(timeoutId);
 
     if (!res.ok || !res.body) {
       const err = await res.text().catch(() => '');
@@ -124,40 +124,30 @@ export async function streamOpenAI(
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
-    return new ReadableStream<string>({
-      async pull(controller) {
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t.startsWith('data:')) continue;
+        const data = t.slice(5).trim();
+        if (data === '[DONE]') continue;
         try {
-          const { done, value } = await reader.read();
-          if (done) {
-            controller.close();
-            return;
-          }
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() ?? '';
-          for (const line of lines) {
-            const t = line.trim();
-            if (!t.startsWith('data:')) continue;
-            const data = t.slice(5).trim();
-            if (data === '[DONE]') continue;
-            try {
-              const delta = JSON.parse(data).choices?.[0]?.delta?.content;
-              if (delta) controller.enqueue(delta);
-            } catch {
-              /* хагас мөр */
-            }
+          const delta = JSON.parse(data).choices?.[0]?.delta?.content;
+          if (delta) {
+            yield delta;
           }
         } catch {
-          controller.close();
+          /* хагас мөр */
         }
-      },
-      cancel() {
-        reader.cancel().catch(() => {});
-      },
-    });
-  } catch (err) {
+      }
+    }
+  } finally {
     clearTimeout(timeoutId);
-    throw err;
   }
 }
 

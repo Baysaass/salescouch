@@ -111,17 +111,13 @@ export async function POST(req: Request, { params }: Ctx) {
           }
         } else {
           try {
-            const stream = await streamOpenAI(contact, history, content, skill);
-            const reader = stream.getReader();
-            for (;;) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              full += value;
-              controller.enqueue(encoder.encode(value));
+            for await (const chunk of streamOpenAI(contact, history, content, skill)) {
+              full += chunk;
+              controller.enqueue(encoder.encode(chunk));
             }
           } catch (aiErr) {
             console.warn('OpenAI алдаа гарсан тул локал коуч руу шилжлээ:', (aiErr as Error).message);
-            const note = `> 💡 *OpenAI API саатсан тул (${(aiErr as Error).message.slice(0, 100)}) локал sales коуч шуурхай хариуллаа.*\n\n`;
+            const note = `> 💡 *OpenAI API (${(aiErr as Error).message.slice(0, 100)}) саатсан тул локал sales коуч шуурхай хариуллаа.*\n\n`;
             full = note + localCoach(contact, content, skill);
             for (const chunk of full.match(/[\s\S]{1,60}/g) ?? []) {
               controller.enqueue(encoder.encode(chunk));

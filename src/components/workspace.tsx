@@ -101,7 +101,7 @@ export function Workspace({ user, aiEnabled, dbMode }: Props) {
 
       const abortCtrl = new AbortController();
       abortCtrlRef.current = abortCtrl;
-      const timeoutId = setTimeout(() => abortCtrl.abort(), 28000);
+      const timeoutId = setTimeout(() => abortCtrl.abort(), 45000);
 
       try {
         const res = await fetch(`/api/contacts/${contactId}/messages`, {
