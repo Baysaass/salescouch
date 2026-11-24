@@ -19,7 +19,8 @@ export const contactInput = z.object({
 export const contactPatch = contactInput.partial();
 
 export const messageInput = z.object({
-  content: z.string().trim().min(1).max(8000),
+  role: z.enum(['user', 'assistant']).optional().default('user'),
+  content: z.string().trim().min(1).max(32000),
   skill: z.string().max(64).optional().nullable(),
 });
 

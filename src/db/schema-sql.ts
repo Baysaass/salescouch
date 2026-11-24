@@ -30,15 +30,18 @@ create table if not exists contacts (
   updated_at timestamptz not null default now()
 );
 create index if not exists contacts_user_idx on contacts(user_id);
+create index if not exists contacts_updated_at_idx on contacts(updated_at);
 
 create table if not exists messages (
   id uuid primary key default gen_random_uuid(),
   contact_id uuid not null references contacts(id) on delete cascade,
   user_id text not null,
-  role text not null,
+  role text not null check (role in ('user', 'assistant', 'system')),
   content text not null,
   skill text,
   created_at timestamptz not null default now()
 );
 create index if not exists messages_contact_idx on messages(contact_id);
+create index if not exists messages_user_idx on messages(user_id);
+create index if not exists messages_created_at_idx on messages(created_at);
 `;

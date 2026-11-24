@@ -127,6 +127,15 @@ export function Workspace({ user, aiEnabled, dbMode }: Props) {
           if (!c) return list;
           return [{ ...c, lastMessage: full, lastAt: new Date().toISOString() }, ...list.filter((x) => x.id !== contactId)];
         });
+
+        // Хариу бүрэн уншигдсан даруйд сервер дээр хадгалагдсаныг баталгаажуулна (serverless stream тасрах үед ч найдвартай хадгалагдана)
+        if (full.trim()) {
+          fetch(`/api/contacts/${contactId}/messages`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: 'assistant', content: full, skill }),
+          }).catch((err) => console.error('Assistant message sync failed:', err));
+        }
       } catch (e) {
         clearTimeout(timeoutId);
         const isAbort = (e as Error).name === 'AbortError';
