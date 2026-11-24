@@ -41,9 +41,11 @@ export function ChatPanel({ contact, messages, streaming, aiEnabled, onSend, onC
   if (!contact) {
     return (
       <section className="flex min-w-0 flex-1 flex-col items-center justify-center p-8 text-center">
-        <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-soft text-brand">
-          <ShieldCheck className="h-6 w-6" />
-        </span>
+        <img
+          src="/app-icon.png"
+          alt="InsurTech Sales Coach"
+          className="h-16 w-16 rounded-2xl shadow-sm object-cover"
+        />
         <h2 className="mt-4 text-lg font-semibold">InsurTech Sales Coach</h2>
         <p className="mt-1 max-w-sm text-sm text-ink-2">
           Харилцагч нэмж, түүний мэдээлэл, persona-д үндэслэн BANT, AIDA, SPIN зэрэг аргаар хэрхэн харилцахыг коучаасаа асуугаарай.
@@ -190,9 +192,11 @@ function EmptyChat({ contact, aiEnabled, onPick, disabled }: { contact: ContactD
   const cards = ['bant', 'spin', 'aida', 'cold-email', 'objection', 'persona'];
   return (
     <div className="mx-auto flex max-w-[620px] flex-col items-center pt-14 text-center">
-      <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-brand-soft text-brand">
-        <Bot className="h-5 w-5" />
-      </span>
+      <img
+        src="/bot-icon.png"
+        alt="Sales Coach"
+        className="h-16 w-16 rounded-2xl shadow-md object-cover"
+      />
       <h3 className="mt-3 text-[17px] font-semibold">{contact.fullName}-д зориулсан sales коуч</h3>
       <p className="mt-1 text-sm text-ink-2">
         Харилцагчийн мэдээлэл, persona-г уншаад аль аргаар яаж харилцахыг зөвлөнө.
@@ -229,9 +233,11 @@ function Bubble({ m, contact }: { m: MessageDTO; contact: ContactDTO }) {
   }
   return (
     <div className="flex items-start gap-3">
-      <span className="mt-5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#eef0f3] text-ink-2">
-        <Bot className="h-4 w-4" />
-      </span>
+      <img
+        src="/bot-icon.png"
+        alt="Sales Coach"
+        className="mt-4 h-8 w-8 shrink-0 rounded-xl shadow-sm object-cover"
+      />
       <div className="min-w-0 max-w-[88%]">
         <span className="mb-1 ml-1 block text-xs text-ink-3">Sales коуч</span>
         <div className="rounded-2xl bg-[#f2f3f5] px-4 py-3">

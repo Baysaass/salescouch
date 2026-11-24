@@ -43,7 +43,12 @@ export function Sidebar({ user, aiEnabled, dbMode, view, onView, query, onQuery,
 
   return (
     <aside className="flex w-[240px] shrink-0 flex-col">
-      <div className="flex items-center gap-2.5 px-2 pb-3 pt-1.5">
+      <div className="flex items-center gap-2.5 px-2 pb-2.5 pt-1 border-b border-line mb-2.5">
+        <img src="/app-icon.png" alt="InsurTech Coach" className="h-7 w-7 rounded-lg shadow-sm object-cover" />
+        <span className="font-semibold text-[14px] tracking-tight text-ink">InsurTech Coach</span>
+      </div>
+
+      <div className="flex items-center gap-2.5 px-2 pb-3 pt-0.5">
         <Avatar name={user.name || user.email} image={user.image} size={32} />
         <div className="min-w-0">
           <p className="truncate text-[14.5px] font-medium">{user.name || 'Борлуулагч'}</p>

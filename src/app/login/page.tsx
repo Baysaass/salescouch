@@ -11,11 +11,16 @@ export default async function LoginPage() {
   return (
     <main className="flex min-h-dvh items-center justify-center p-6">
       <div className="w-full max-w-[400px] rounded-2xl border border-line bg-panel p-8 shadow-sm">
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand text-white">
-            <ShieldCheck className="h-5 w-5" />
-          </span>
-          <span className="text-[15px] font-semibold">InsurTech Sales Coach</span>
+        <div className="flex items-center gap-3">
+          <img
+            src="/app-icon.png"
+            alt="InsurTech Sales Coach Logo"
+            className="h-10 w-10 rounded-xl shadow-sm object-cover"
+          />
+          <div>
+            <span className="text-[15px] font-semibold block leading-tight text-ink">InsurTech Sales Coach</span>
+            <span className="text-[11.5px] font-medium text-emerald-800">Practical Insurance AI</span>
+          </div>
         </div>
         <h1 className="mt-7 text-[22px] font-semibold tracking-tight">Нэвтрэх</h1>
         <p className="mt-1.5 text-sm text-ink-2">
