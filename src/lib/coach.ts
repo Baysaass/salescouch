@@ -4,6 +4,7 @@ import { SKILLS, SKILL_MAP, type SalesSkill } from './skills';
 import { STAGE_LABELS, TEMPERATURE_LABELS, PERSONA_FIELDS, CHANNEL_FIELDS } from './labels';
 import { SKILL_DOCS } from './skill-docs';
 import { COMPANY_FACTS, matchProducts, productBrief, productCatalogCompact, type Product } from './products';
+import { playbookPromptCompact } from './playbook';
 
 export function contactText(c: Contact): string {
   return [c.company, c.role, c.notes, ...Object.values(c.persona ?? {}), ...Object.values(c.channels ?? {})]
@@ -67,6 +68,8 @@ ${matched.length ? matched.map(productBrief).join('\n\n') : '(Түлхүүр ү�
 
 ШИНГЭЭСЭН SKILL-ҮҮД (devoneonline, rombtr, TheCraigHewitt, Autter-dev, syntax-syndicate, roohe):
 ${library}
+
+${playbookPromptCompact()}
 
 ХАРИЛЦАГЧИЙН МЭДЭЭЛЭЛ:
 ${contactProfile(c)}
@@ -225,6 +228,17 @@ export function localCoach(c: Contact, userMessage: string, skillId?: string | n
       'Хүндэтгэсэн,',
       '[Таны нэр]',
       '```',
+    );
+  }
+
+  if (/playbook|плейбүүк|скрипт|дижитал даатгал/.test(text)) {
+    parts.push(
+      '',
+      '### Дижитал Sales Playbook-ийн зөвлөмж (Т. Өсөхбаяр v2.0)',
+      '- **Амлалт:** "Та салбар дээр очиж цаг алдахгүйгээр утсаараа 3 минутад даатгуулаад, тохиолдол гарвал онлайнаар нөхөн төлбөрөө ~3 өдөрт шийдүүлэх дижитал хамгаалалт өгнө."',
+      '- **Хаалтын санал:** «Төлбөрийн холбоосыг одоо чатаар илгээчихье, утаснаасаа 2 минутад баталгаажуулчих уу?» (Activation Energy ↓)',
+      '- **Татгалзлын хариу:** «Зөрүүг 12 сард хуваахад сард хэдхэн мянга; харин 3 өдрийн онлайн шийдвэр таны ажлын өдрийг хэмнэнэ.»',
+      '- **Follow-up:** Яриа дууссанаас хойш 15 минутад 1 хуудас харьцуулалт + 1-click төлбөрийн линк илгээнэ.',
     );
   }
 

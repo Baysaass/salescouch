@@ -1,14 +1,15 @@
 'use client';
 
-import { BookOpen, Database, LogOut, MessagesSquare, PenLine, Search, ShieldCheck, X } from 'lucide-react';
+import { BookMarked, BookOpen, Database, LogOut, MessagesSquare, PenLine, Search, ShieldCheck, X } from 'lucide-react';
 import { signOutAction } from '@/app/actions';
 import { Avatar } from './ui';
 import { clsx } from './clsx';
 
-export type View = 'chat' | 'docs' | 'products';
+export type View = 'chat' | 'playbook' | 'docs' | 'products';
 
 const NAV: { id: View; label: string; icon: React.ComponentType<{ className?: string }>; hint: string }[] = [
   { id: 'chat', label: 'Харилцагчид', icon: MessagesSquare, hint: 'Харилцагч + коуч чат' },
+  { id: 'playbook', label: 'Playbook', icon: BookMarked, hint: 'Миний Sales Playbook v2.0' },
   { id: 'docs', label: 'Docs', icon: BookOpen, hint: 'Борлуулалтын аргачлал, ажлын урсгал' },
   { id: 'products', label: 'Бүтээгдэхүүн', icon: ShieldCheck, hint: 'Practical-ийн даатгалууд' },
 ];
@@ -21,12 +22,24 @@ interface Props {
   onView: (v: View) => void;
   query: string;
   onQuery: (q: string) => void;
-  counts: { contacts: number; docs: number; products: number };
+  counts: { contacts: number; docs: number; products: number; playbook?: number };
 }
 
 export function Sidebar({ user, aiEnabled, dbMode, view, onView, query, onQuery, counts }: Props) {
-  const countFor: Record<View, number> = { chat: counts.contacts, docs: counts.docs, products: counts.products };
-  const placeholder = view === 'chat' ? 'Харилцагч хайх…' : view === 'docs' ? 'Арга хайх…' : 'Бүтээгдэхүүн хайх…';
+  const countFor: Record<View, number> = {
+    chat: counts.contacts,
+    playbook: counts.playbook ?? 3,
+    docs: counts.docs,
+    products: counts.products,
+  };
+  const placeholder =
+    view === 'chat'
+      ? 'Харилцагч хайх…'
+      : view === 'playbook'
+        ? 'Playbook-оос хайх…'
+        : view === 'docs'
+          ? 'Арга хайх…'
+          : 'Бүтээгдэхүүн хайх…';
 
   return (
     <aside className="flex w-[240px] shrink-0 flex-col">

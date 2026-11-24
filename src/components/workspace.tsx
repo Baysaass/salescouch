@@ -8,6 +8,7 @@ import { ContactPanel } from './contact-panel';
 import { ContactFormModal } from './contact-form';
 import { DocsView } from './docs-view';
 import { ProductsView } from './products-view';
+import { PlaybookView } from './playbook-view';
 import type { ContactDTO, MessageDTO } from './types';
 import { SKILLS, SKILL_MAP } from '@/lib/skills';
 import { PRODUCTS, PRODUCT_MAP } from '@/lib/products';
@@ -161,10 +162,19 @@ export function Workspace({ user, aiEnabled, dbMode }: Props) {
         }}
         query={query}
         onQuery={setQuery}
-        counts={{ contacts: contacts.length, docs: SKILLS.length, products: PRODUCTS.length }}
+        counts={{ contacts: contacts.length, playbook: 3, docs: SKILLS.length, products: PRODUCTS.length }}
       />
 
       <div className="flex min-w-0 flex-1 overflow-hidden rounded-2xl border border-line bg-panel">
+        {view === 'playbook' && (
+          <PlaybookView
+            query={query}
+            contacts={contacts}
+            selectedContactId={selectedId}
+            onApply={(cid, text) => applyToContact(cid, text, null)}
+          />
+        )}
+
         {view === 'docs' && (
           <DocsView
             query={query}
