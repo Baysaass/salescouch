@@ -5,13 +5,23 @@ import type { Provider } from 'next-auth/providers';
 import { authConfig } from './auth.config';
 import { getDb, schema } from './db';
 
-export const googleEnabled = Boolean(process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET);
+const googleId = process.env.AUTH_GOOGLE_ID || process.env.GOOGLE_CLIENT_ID;
+const googleSecret = process.env.AUTH_GOOGLE_SECRET || process.env.GOOGLE_CLIENT_SECRET;
+
+export const googleEnabled = Boolean(googleId && googleSecret);
 // Google тохиргоо хийгдээгүй локал орчинд туршилтын нэвтрэлт идэвхжинэ
 export const devLoginEnabled =
   process.env.AUTH_DEV_LOGIN === 'true' || (!googleEnabled && process.env.NODE_ENV !== 'production');
 
 const providers: Provider[] = [];
-if (googleEnabled) providers.push(Google);
+if (googleEnabled) {
+  providers.push(
+    Google({
+      clientId: googleId,
+      clientSecret: googleSecret,
+    }),
+  );
+}
 if (devLoginEnabled) {
   providers.push(
     Credentials({
