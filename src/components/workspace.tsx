@@ -6,6 +6,7 @@ import { ContactList } from './contact-list';
 import { ChatPanel } from './chat-panel';
 import { ContactPanel } from './contact-panel';
 import { ContactFormModal } from './contact-form';
+import { ShareContactModal } from './share-contact-modal';
 import { DocsView } from './docs-view';
 import { ProductsView } from './products-view';
 import { PlaybookView } from './playbook-view';
@@ -38,6 +39,7 @@ export function Workspace({ user, aiEnabled }: Props) {
   const [questionsCount, setQuestionsCount] = useState(8);
   const [pending, setPending] = useState<{ contactId: string; content: string; skill: string | null } | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
 
@@ -86,7 +88,15 @@ export function Workspace({ user, aiEnabled }: Props) {
   const upsertContact = useCallback((c: ContactDTO) => {
     setContacts((list) => {
       const prev = list.find((x) => x.id === c.id);
-      const merged = { ...prev, ...c, lastMessage: c.lastMessage ?? prev?.lastMessage, lastAt: c.lastAt ?? prev?.lastAt };
+      const merged = {
+        ...prev,
+        ...c,
+        isOwner: c.isOwner !== undefined ? c.isOwner : prev?.isOwner,
+        sharedBy: c.sharedBy !== undefined ? c.sharedBy : prev?.sharedBy,
+        sharedWith: c.sharedWith !== undefined ? c.sharedWith : prev?.sharedWith,
+        lastMessage: c.lastMessage ?? prev?.lastMessage,
+        lastAt: c.lastAt ?? prev?.lastAt,
+      };
       return [merged, ...list.filter((x) => x.id !== c.id)];
     });
   }, []);
@@ -191,13 +201,23 @@ export function Workspace({ user, aiEnabled }: Props) {
 
   const clearChat = useCallback(async () => {
     if (!selectedId || !confirm('Энэ харилцагчтай холбоотой чатын түүхийг устгах уу?')) return;
-    await fetch(`/api/contacts/${selectedId}/messages`, { method: 'DELETE' });
+    const res = await fetch(`/api/contacts/${selectedId}/messages`, { method: 'DELETE' });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      setError(data?.error || 'Чатын түүх цэвэрлэж чадсангүй');
+      return;
+    }
     setMessages([]);
     setContacts((l) => l.map((c) => (c.id === selectedId ? { ...c, lastMessage: null } : c)));
   }, [selectedId]);
 
   const deleteContact = useCallback(async (id: string) => {
-    if (!confirm('Харилцагч болон түүний чатыг бүр мөсөн устгах уу? Буцаах боломжгүй.')) return;
+    const target = contacts.find((c) => c.id === id);
+    const msg =
+      target?.isOwner === false
+        ? 'Хуваалцсан энэ харилцагчийг өөрийн жагсаалтаас хасах уу?'
+        : 'Харилцагч болон түүний чатыг бүр мөсөн устгах уу? Буцаах боломжгүй.';
+    if (!confirm(msg)) return;
     const res = await fetch(`/api/contacts/${id}`, { method: 'DELETE' });
     if (!res.ok) return;
     setContacts((l) => {
@@ -205,7 +225,7 @@ export function Workspace({ user, aiEnabled }: Props) {
       setSelectedId(next[0]?.id ?? null);
       return next;
     });
-  }, []);
+  }, [contacts]);
 
   return (
     <div className="flex h-dvh gap-3 p-3">
@@ -310,10 +330,20 @@ export function Workspace({ user, aiEnabled }: Props) {
               onSend={send}
               onClear={clearChat}
               onNewContact={() => setFormOpen(true)}
+              onShare={() => setShareOpen(true)}
               onCancel={cancelStreaming}
             />
 
-            {selected && <ContactPanel key={selected.id} contact={selected} aiEnabled={aiEnabled} onSaved={upsertContact} onDelete={() => deleteContact(selected.id)} />}
+            {selected && (
+              <ContactPanel
+                key={selected.id}
+                contact={selected}
+                aiEnabled={aiEnabled}
+                onSaved={upsertContact}
+                onShare={() => setShareOpen(true)}
+                onDelete={() => deleteContact(selected.id)}
+              />
+            )}
           </>
         )}
       </div>
@@ -326,6 +356,14 @@ export function Workspace({ user, aiEnabled }: Props) {
             setSelectedId(c.id);
             setFormOpen(false);
           }}
+        />
+      )}
+
+      {shareOpen && selected && (
+        <ShareContactModal
+          contact={selected}
+          onClose={() => setShareOpen(false)}
+          onSharesChanged={(sharedWith) => upsertContact({ ...selected, sharedWith })}
         />
       )}
 

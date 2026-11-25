@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ArrowUp, Bot, Check, ChevronDown, Copy, Eraser, Mail, ShieldCheck, Sparkles, Square, UserPlus, X } from 'lucide-react';
+import { ArrowUp, Bot, Check, ChevronDown, Copy, Eraser, Mail, Share2, ShieldCheck, Sparkles, Square, UserPlus, X } from 'lucide-react';
 import type { ContactDTO, MessageDTO } from './types';
 import { Avatar, IconButton, gmailComposeUrl } from './ui';
 import { clsx } from './clsx';
@@ -17,10 +17,11 @@ interface Props {
   onSend: (content: string, skill?: string | null) => void;
   onClear: () => void;
   onNewContact: () => void;
+  onShare?: () => void;
   onCancel?: () => void;
 }
 
-export function ChatPanel({ contact, messages, streaming, aiEnabled, onSend, onClear, onNewContact, onCancel }: Props) {
+export function ChatPanel({ contact, messages, streaming, aiEnabled, onSend, onClear, onNewContact, onShare, onCancel }: Props) {
   const [text, setText] = useState('');
   const [skill, setSkill] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -71,16 +72,38 @@ export function ChatPanel({ contact, messages, streaming, aiEnabled, onSend, onC
       <header className="flex items-center gap-3 px-6 py-4">
         <Avatar name={contact.fullName} size={36} />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[15.5px] font-medium">{contact.fullName}</p>
+          <div className="flex items-center gap-2">
+            <p className="truncate text-[15.5px] font-medium">{contact.fullName}</p>
+            {contact.isOwner === false && contact.sharedBy && (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-medium text-brand">
+                <Share2 className="h-3 w-3" />
+                {contact.sharedBy.name || contact.sharedBy.email} хуваалцсан
+              </span>
+            )}
+          </div>
           <p className="truncate text-[13px] text-ink-2">{subtitle}</p>
         </div>
+        {contact.isOwner !== false && onShare && (
+          <IconButton title="Gmail хэрэглэгч рүү хуваалцах" onClick={onShare}>
+            <Share2 className="h-[18px] w-[18px]" />
+          </IconButton>
+        )}
         <IconButton title="Gmail-ээр имэйл бичих" href={gmailComposeUrl(contact.email)}>
           <Mail className="h-[18px] w-[18px]" />
         </IconButton>
-        <IconButton title="Чатын түүх цэвэрлэх" onClick={onClear}>
-          <Eraser className="h-[18px] w-[18px]" />
-        </IconButton>
+        {contact.isOwner !== false && (
+          <IconButton title="Чатын түүх цэвэрлэх" onClick={onClear}>
+            <Eraser className="h-[18px] w-[18px]" />
+          </IconButton>
+        )}
       </header>
+
+      {contact.isOwner === false && contact.sharedBy?.note && (
+        <div className="mx-6 mb-2 rounded-xl border border-emerald-200/70 bg-brand-soft/60 px-3.5 py-2 text-xs text-ink">
+          <span className="font-semibold text-brand">{contact.sharedBy.name || contact.sharedBy.email}: </span>
+          <span>{contact.sharedBy.note}</span>
+        </div>
+      )}
 
       <div ref={scrollRef} className="scroll-thin flex-1 overflow-y-auto px-6 pb-4">
         {messages.length === 0 ? (

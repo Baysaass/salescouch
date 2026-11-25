@@ -37,6 +37,18 @@ create table if not exists contacts (
 create index if not exists contacts_user_idx on contacts(user_id);
 create index if not exists contacts_updated_at_idx on contacts(updated_at);
 
+create table if not exists contact_shares (
+  id uuid primary key default gen_random_uuid(),
+  contact_id uuid not null references contacts(id) on delete cascade,
+  owner_user_id text not null,
+  shared_with_user_id text not null references users(id) on delete cascade,
+  note text,
+  created_at timestamptz not null default now()
+);
+create unique index if not exists contact_shares_uniq_idx on contact_shares(contact_id, shared_with_user_id);
+create index if not exists contact_shares_recipient_idx on contact_shares(shared_with_user_id);
+create index if not exists contact_shares_contact_idx on contact_shares(contact_id);
+
 create table if not exists messages (
   id uuid primary key default gen_random_uuid(),
   contact_id uuid not null references contacts(id) on delete cascade,

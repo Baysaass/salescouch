@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { getDb, schema } from '@/db';
 import { findContact, requireUser } from '@/lib/api';
 import { clean, contactPatch } from '@/lib/validators';
@@ -12,7 +12,7 @@ export async function GET(_req: Request, { params }: Ctx) {
   const { id } = await params;
   const existing = await findContact(userId, id);
   if (!existing) return NextResponse.json({ error: 'Олдсонгүй' }, { status: 404 });
-  return NextResponse.json(existing);
+  return NextResponse.json({ ...existing, isOwner: existing.userId === userId });
 }
 
 export async function PATCH(req: Request, { params }: Ctx) {
@@ -34,15 +34,24 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (d.persona) set.persona = clean(d.persona);
   const db = await getDb();
   const [row] = await db.update(schema.contacts).set(set).where(eq(schema.contacts.id, id)).returning();
-  return NextResponse.json(row);
+  return NextResponse.json({ ...row, isOwner: existing.userId === userId });
 }
 
 export async function DELETE(_req: Request, { params }: Ctx) {
   const userId = await requireUser();
   if (typeof userId !== 'string') return userId;
   const { id } = await params;
-  if (!(await findContact(userId, id))) return NextResponse.json({ error: 'Олдсонгүй' }, { status: 404 });
+  const existing = await findContact(userId, id);
+  if (!existing) return NextResponse.json({ error: 'Олдсонгүй' }, { status: 404 });
+
   const db = await getDb();
+  if (existing.userId !== userId) {
+    await db
+      .delete(schema.contactShares)
+      .where(and(eq(schema.contactShares.contactId, id), eq(schema.contactShares.sharedWithUserId, userId)));
+    return NextResponse.json({ ok: true, leftShare: true });
+  }
+
   await db.delete(schema.messages).where(eq(schema.messages.contactId, id));
   await db.delete(schema.contacts).where(eq(schema.contacts.id, id));
   return NextResponse.json({ ok: true });

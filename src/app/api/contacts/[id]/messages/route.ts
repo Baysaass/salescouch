@@ -23,7 +23,11 @@ export async function DELETE(_req: Request, { params }: Ctx) {
   const userId = await requireUser();
   if (typeof userId !== 'string') return userId;
   const { id } = await params;
-  if (!(await findContact(userId, id))) return NextResponse.json({ error: 'Олдсонгүй' }, { status: 404 });
+  const existing = await findContact(userId, id);
+  if (!existing) return NextResponse.json({ error: 'Олдсонгүй' }, { status: 404 });
+  if (existing.userId !== userId) {
+    return NextResponse.json({ error: 'Зөвхөн харилцагчийг бүртгэсэн хүн чатын түүх устгах боломжтой' }, { status: 403 });
+  }
   const db = await getDb();
   await db.delete(schema.messages).where(eq(schema.messages.contactId, id));
   return NextResponse.json({ ok: true });

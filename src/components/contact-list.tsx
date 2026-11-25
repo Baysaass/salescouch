@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, UserPlus } from 'lucide-react';
+import { Plus, Share2, UserPlus } from 'lucide-react';
 import type { ContactDTO } from './types';
 import { Avatar, relTime } from './ui';
 import { clsx } from './clsx';
@@ -12,6 +12,7 @@ const FILTERS = [
   { id: 'hot', label: 'Халуун' },
   { id: 'warm', label: 'Дулаан' },
   { id: 'cold', label: 'Хүйтэн' },
+  { id: 'shared', label: 'Хуваалцсан' },
 ] as const;
 
 const TEMP_DOT: Record<string, string> = { hot: 'bg-rose-500', warm: 'bg-amber-400', cold: 'bg-sky-400' };
@@ -37,11 +38,20 @@ interface Props {
 export function ContactList({ contacts, loading, query, selectedId, onSelect, onNew }: Props) {
   const [filter, setFilter] = useState<(typeof FILTERS)[number]['id']>('all');
   const q = query.trim().toLowerCase();
-  const list = contacts.filter(
-    (c) =>
-      (filter === 'all' || c.temperature === filter) &&
-      (!q || `${c.fullName} ${c.company ?? ''} ${c.role ?? ''} ${c.email ?? ''} ${c.phone ?? ''}`.toLowerCase().includes(q)),
-  );
+  const list = contacts.filter((c) => {
+    const matchesFilter =
+      filter === 'all'
+        ? true
+        : filter === 'shared'
+          ? c.isOwner === false || (c.sharedWith?.length ?? 0) > 0
+          : c.temperature === filter;
+    const matchesQuery =
+      !q ||
+      `${c.fullName} ${c.company ?? ''} ${c.role ?? ''} ${c.email ?? ''} ${c.phone ?? ''} ${c.sharedBy?.name ?? ''} ${c.sharedBy?.email ?? ''}`
+        .toLowerCase()
+        .includes(q);
+    return matchesFilter && matchesQuery;
+  });
 
   return (
     <div className="flex h-full flex-col">
@@ -56,7 +66,7 @@ export function ContactList({ contacts, loading, query, selectedId, onSelect, on
         </button>
       </div>
 
-      <div className="flex gap-1.5 px-4 pb-3">
+      <div className="flex flex-wrap gap-1.5 px-4 pb-3">
         {FILTERS.map((f) => (
           <button
             key={f.id}
@@ -108,6 +118,17 @@ export function ContactList({ contacts, loading, query, selectedId, onSelect, on
               <span className="block truncate text-[13.5px] text-ink-2">
                 {preview(c.lastMessage) ?? [c.company, STAGE_LABELS[c.stage]].filter(Boolean).join(' · ')}
               </span>
+              {c.isOwner === false && c.sharedBy ? (
+                <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-brand-soft px-2 py-0.5 text-[10.5px] font-medium text-brand">
+                  <Share2 className="h-2.5 w-2.5" />
+                  Ирсэн · {c.sharedBy.name || c.sharedBy.email}
+                </span>
+              ) : (c.sharedWith?.length ?? 0) > 0 ? (
+                <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-[#eef2f6] px-2 py-0.5 text-[10.5px] font-medium text-ink-2">
+                  <Share2 className="h-2.5 w-2.5" />
+                  <span className="tabular-nums">{c.sharedWith!.length}</span> хүнд хуваалцсан
+                </span>
+              ) : null}
             </span>
           </button>
         ))}

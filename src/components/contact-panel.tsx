@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import {
   AtSign, Briefcase, Building2, Globe, Loader2, Mail, MapPin, MessageCircle, MoreHorizontal,
-  Pencil, Phone, Send, Sparkles, Trash2, Link2,
+  Pencil, Phone, Send, Share2, Sparkles, Trash2, Link2, Users,
 } from 'lucide-react';
 import type { ContactDTO } from './types';
 import type { ContactChannels } from '@/db/schema';
@@ -49,10 +49,11 @@ interface Props {
   contact: ContactDTO;
   aiEnabled: boolean;
   onSaved: (c: ContactDTO) => void;
+  onShare?: () => void;
   onDelete: () => void;
 }
 
-export function ContactPanel({ contact, aiEnabled, onSaved, onDelete }: Props) {
+export function ContactPanel({ contact, aiEnabled, onSaved, onShare, onDelete }: Props) {
   const [editing, setEditing] = useState(false);
   const [menu, setMenu] = useState(false);
   const [notes, setNotes] = useState(contact.notes ?? '');
@@ -99,16 +100,66 @@ export function ContactPanel({ contact, aiEnabled, onSaved, onDelete }: Props) {
           <ActionBtn title="Залгах" href={contact.phone ? `tel:${contact.phone.replace(/\s/g, '')}` : undefined}><Phone className="h-[18px] w-[18px]" /></ActionBtn>
           <ActionBtn title="Gmail" href={gmailComposeUrl(contact.email)}><Mail className="h-[18px] w-[18px]" /></ActionBtn>
           <ActionBtn title="Засах" onClick={() => setEditing(true)}><Pencil className="h-[18px] w-[18px]" /></ActionBtn>
+          {contact.isOwner !== false && onShare && (
+            <ActionBtn title="Бусдад хуваалцах" onClick={onShare}><Share2 className="h-[18px] w-[18px]" /></ActionBtn>
+          )}
           <ActionBtn title="Бусад" onClick={() => setMenu((v) => !v)}><MoreHorizontal className="h-[18px] w-[18px]" /></ActionBtn>
           {menu && (
-            <div className="absolute right-0 top-12 z-20 w-44 rounded-xl border border-line bg-white p-1 text-left shadow-lg">
+            <div className="absolute right-0 top-12 z-20 w-52 rounded-xl border border-line bg-white p-1 text-left shadow-lg">
               <button onClick={() => { setMenu(false); onDelete(); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-rose-600 hover:bg-rose-50">
-                <Trash2 className="h-4 w-4" /> Харилцагч устгах
+                <Trash2 className="h-4 w-4" />
+                {contact.isOwner === false ? 'Миний жагсаалтаас хасах' : 'Харилцагч устгах'}
               </button>
             </div>
           )}
         </div>
       </div>
+
+      {contact.isOwner === false && contact.sharedBy && (
+        <div className="mt-5 rounded-xl border border-emerald-200/80 bg-brand-soft/60 p-3 text-xs">
+          <div className="flex items-center gap-1.5 font-semibold text-brand">
+            <Share2 className="h-3.5 w-3.5" />
+            <span>Тантай хуваалцсан харилцагч</span>
+          </div>
+          <p className="mt-1 text-ink">
+            Илгээсэн: <span className="font-medium">{contact.sharedBy.name || contact.sharedBy.email}</span>{' '}
+            <span className="text-ink-2">({contact.sharedBy.email})</span>
+          </p>
+          {contact.sharedBy.note && (
+            <p className="mt-1.5 rounded-lg bg-white/80 px-2.5 py-1.5 text-ink-2">{contact.sharedBy.note}</p>
+          )}
+        </div>
+      )}
+
+      {contact.isOwner !== false && (contact.sharedWith?.length ?? 0) > 0 && (
+        <div className="mt-5 rounded-xl border border-line bg-canvas/35 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-2">
+              <Users className="h-3.5 w-3.5 text-brand" />
+              Хуваалцсан (<span className="tabular-nums">{contact.sharedWith!.length}</span>)
+            </span>
+            {onShare && (
+              <button
+                type="button"
+                onClick={onShare}
+                className="text-xs font-medium text-brand hover:underline"
+              >
+                Удирдах
+              </button>
+            )}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {contact.sharedWith!.map((s) => (
+              <span
+                key={s.userId}
+                className="rounded-full border border-line bg-white px-2.5 py-0.5 text-[11px] font-medium text-ink"
+              >
+                {s.name || s.email}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="mt-6 grid grid-cols-2 gap-2">
         <select value={contact.stage} onChange={(e) => patch({ stage: e.target.value })} className="h-9 rounded-lg border border-line bg-white px-2 text-[13px] outline-none">

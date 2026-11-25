@@ -1,5 +1,21 @@
 import type { ContactChannels, ContactPersona, PersonaMatch } from '@/db/schema';
 
+export interface ContactShareInfoDTO {
+  userId: string;
+  email: string;
+  name: string | null;
+  image: string | null;
+  note?: string | null;
+  sharedAt: string;
+}
+
+export interface RegisteredUserDTO {
+  id: string;
+  email: string;
+  name: string | null;
+  image: string | null;
+}
+
 export interface ContactDTO {
   id: string;
   fullName: string;
@@ -17,6 +33,9 @@ export interface ContactDTO {
   updatedAt: string;
   lastMessage?: string | null;
   lastAt?: string | null;
+  isOwner?: boolean;
+  sharedBy?: ContactShareInfoDTO | null;
+  sharedWith?: ContactShareInfoDTO[];
 }
 
 export interface MessageDTO {

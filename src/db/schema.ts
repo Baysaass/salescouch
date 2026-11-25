@@ -75,6 +75,29 @@ export const messages = pgTable(
 export type Contact = typeof contacts.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 
+export const contactShares = pgTable(
+  'contact_shares',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    contactId: uuid('contact_id')
+      .notNull()
+      .references(() => contacts.id, { onDelete: 'cascade' }),
+    ownerUserId: text('owner_user_id').notNull(),
+    sharedWithUserId: text('shared_with_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    note: text('note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('contact_shares_uniq_idx').on(t.contactId, t.sharedWithUserId),
+    index('contact_shares_recipient_idx').on(t.sharedWithUserId),
+    index('contact_shares_contact_idx').on(t.contactId),
+  ],
+);
+
+export type ContactShare = typeof contactShares.$inferSelect;
+
 export interface PersonaMatch {
   personaId: string;
   personaName: string;

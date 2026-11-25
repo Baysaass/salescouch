@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowRight,
@@ -137,6 +137,9 @@ export function QuestionsView({
     }
   }, [contacts, selectedContactId, synthContactId]);
 
+  const onFollowedTagsChangeRef = useRef(onFollowedTagsChange);
+  onFollowedTagsChangeRef.current = onFollowedTagsChange;
+
   const fetchAvailableTags = useCallback(async () => {
     try {
       const r = await fetch('/api/profile/tags');
@@ -144,13 +147,13 @@ export function QuestionsView({
       const data: { followedTags?: string[]; availableTags?: { tag: string; count: number }[] } = await r.json();
       if (Array.isArray(data.followedTags)) {
         setFollowedTags(data.followedTags);
-        onFollowedTagsChange?.(data.followedTags);
+        onFollowedTagsChangeRef.current?.(data.followedTags);
       }
       if (Array.isArray(data.availableTags)) {
         setAvailableTags(data.availableTags);
       }
     } catch {}
-  }, [onFollowedTagsChange]);
+  }, []);
 
   useEffect(() => {
     void fetchAvailableTags();

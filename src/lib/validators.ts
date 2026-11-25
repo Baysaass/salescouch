@@ -47,6 +47,11 @@ export const toggleFollowTagInput = z.object({
   tag: z.string().trim().min(2, 'Таг хэт богино байна').max(45),
 });
 
+export const contactShareInput = z.object({
+  email: z.string().trim().email('Хүчинтэй имэйл хаяг оруулна уу').max(200),
+  note: z.string().trim().max(500).optional().nullable(),
+});
+
 export const questionCommentInput = z.object({
   content: z.string().trim().min(1, 'Сэтгэгдэл хоосон байна').max(2000),
 });

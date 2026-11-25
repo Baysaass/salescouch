@@ -33,6 +33,18 @@ create table if not exists contacts (
 create index if not exists contacts_user_idx on contacts(user_id);
 create index if not exists contacts_updated_at_idx on contacts(updated_at);
 
+create table if not exists contact_shares (
+  id uuid primary key default gen_random_uuid(),
+  contact_id uuid not null references contacts(id) on delete cascade,
+  owner_user_id text not null,
+  shared_with_user_id text not null references users(id) on delete cascade,
+  note text,
+  created_at timestamptz not null default now()
+);
+create unique index if not exists contact_shares_uniq_idx on contact_shares(contact_id, shared_with_user_id);
+create index if not exists contact_shares_recipient_idx on contact_shares(shared_with_user_id);
+create index if not exists contact_shares_contact_idx on contact_shares(contact_id);
+
 create table if not exists messages (
   id uuid primary key default gen_random_uuid(),
   contact_id uuid not null references contacts(id) on delete cascade,
@@ -111,6 +123,7 @@ create table if not exists question_comments (
 );
 create index if not exists question_comments_question_idx on question_comments(question_id);
 
+alter table contact_shares enable row level security;
 alter table messages enable row level security;
 alter table question_clusters enable row level security;
 alter table questions enable row level security;
@@ -119,6 +132,9 @@ alter table question_comments enable row level security;
 
 do $$
 begin
+  if not exists (select 1 from pg_policies where tablename = 'contact_shares' and policyname = 'contact_shares_all_access') then
+    create policy contact_shares_all_access on contact_shares for all using (true) with check (true);
+  end if;
   if not exists (select 1 from pg_policies where tablename = 'messages' and policyname = 'messages_all_access') then
     create policy messages_all_access on messages for all using (true) with check (true);
   end if;
