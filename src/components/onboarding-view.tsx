@@ -1,26 +1,20 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Award,
-  BookOpen,
   Calendar,
   CheckCircle2,
   Clock,
   Copy,
-  ExternalLink,
-  Flame,
   GraduationCap,
-  HelpCircle,
   Lightbulb,
-  MessageSquare,
   MessageSquareShare,
   PhoneCall,
   Rocket,
+  RotateCcw,
   ShieldCheck,
   Sparkles,
-  Target,
-  Users,
   Zap,
 } from 'lucide-react';
 import type { ContactDTO } from './types';
@@ -28,6 +22,7 @@ import { ApplyBar } from './apply-bar';
 import { clsx } from './clsx';
 
 interface Props {
+  query?: string;
   contacts: ContactDTO[];
   selectedContactId: string | null;
   onApply: (contactId: string, text: string) => void;
@@ -165,7 +160,25 @@ const MISTAKES = [
   },
 ];
 
-export function OnboardingView({ contacts, selectedContactId, onApply, onNavigateToQuestions }: Props) {
+const QUICK_SCRIPTS = [
+  {
+    title: 'Утсаар эхлэх эхний 15 секундийн скрипт',
+    script:
+      'Сайн байна уу, [Харилцагчийн нэр] ээ? Таны энэ өдрийн ажилд амжилт хүсье. Бид жолооч, харилцагчдадаа салбар дээр очих шаардлагагүйгээр утсаараа 3 минутад даатгуулаад, тохиолдол гарвал цахимаар 3 өдөрт нөхөн төлбөрөө авах боломж олгож байгаа юм. Та одоогийн тээврийн хэрэгслийн даатгалаа ийм шуурхай цахим нөхцөлөөр шинэчлэхийг сонирхох уу?',
+  },
+  {
+    title: '«Өөр газар даатгалтай» гэх үед хэлэх скрипт',
+    script:
+      'Маш сайн байна аа! Таны хувьд одоогийн даатгалынхаа яг ямар нөхцөл, үйлчилгээнд нь хамгийн сэтгэл хангалуун байдаг вэ? Мөн хэрэв сайжруулах боломж байвал юуг нь өөрчилмөөр байна?',
+  },
+  {
+    title: 'Хаалтын скрипт (1-Click төлбөрийн линк)',
+    script:
+      'Танд салбар дээр очиж бичиг баримт авч очих ямар ч шаардлага байхгүй. Би одоо таны чат руу төлбөрийн найдвартай баталгаажуулах холбоос илгээчихье, та утаснаасаа 2 минутад баталгаажуулчих уу?',
+  },
+];
+
+export function OnboardingView({ query = '', contacts, selectedContactId, onApply, onNavigateToQuestions }: Props) {
   const [tab, setTab] = useState<Tab>('checklist');
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
   const [copiedText, setCopiedText] = useState<string | null>(null);
@@ -187,11 +200,36 @@ export function OnboardingView({ contacts, selectedContactId, onApply, onNavigat
     });
   };
 
+  const resetChecklist = () => {
+    setCompletedSteps([]);
+    try {
+      localStorage.removeItem('insurtech_onboarding_checks');
+    } catch {}
+  };
+
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
     setCopiedText(text);
     setTimeout(() => setCopiedText(null), 1800);
   };
+
+  const q = query.trim().toLowerCase();
+  const filteredSteps = useMemo(
+    () => (q ? ONBOARDING_STEPS.filter((s) => `${s.title} ${s.desc} ${s.tag}`.toLowerCase().includes(q)) : ONBOARDING_STEPS),
+    [q],
+  );
+  const filteredWeeks = useMemo(
+    () => (q ? WEEKS.filter((w) => `${w.week} ${w.title} ${w.goal} ${w.tasks.join(' ')} ${w.kpi}`.toLowerCase().includes(q)) : WEEKS),
+    [q],
+  );
+  const filteredMistakes = useMemo(
+    () => (q ? MISTAKES.filter((m) => `${m.title} ${m.desc} ${m.fix}`.toLowerCase().includes(q)) : MISTAKES),
+    [q],
+  );
+  const filteredScripts = useMemo(
+    () => (q ? QUICK_SCRIPTS.filter((s) => `${s.title} ${s.script}`.toLowerCase().includes(q)) : QUICK_SCRIPTS),
+    [q],
+  );
 
   const progressPercent = Math.round((completedSteps.length / ONBOARDING_STEPS.length) * 100);
 
@@ -225,9 +263,18 @@ export function OnboardingView({ contacts, selectedContactId, onApply, onNavigat
                 {completedSteps.length} / {ONBOARDING_STEPS.length} алхам ({progressPercent}%)
               </p>
             </div>
-            <div className="h-8 w-8 rounded-full border-2 border-brand/20 bg-brand-soft flex items-center justify-center">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-brand/20 bg-brand-soft">
               <span className="text-xs font-bold text-brand">{progressPercent}%</span>
             </div>
+            {completedSteps.length > 0 && (
+              <button
+                onClick={resetChecklist}
+                title="Явц цэвэрлэх"
+                className="rounded-lg p-1.5 text-ink-3 hover:bg-panel hover:text-ink"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -247,7 +294,7 @@ export function OnboardingView({ contacts, selectedContactId, onApply, onNavigat
                 key={item.id}
                 onClick={() => setTab(item.id as Tab)}
                 className={clsx(
-                  'flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-medium transition-colors',
+                  'flex items-center gap-2 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-medium transition-colors',
                   active ? 'bg-brand text-white shadow-sm' : 'text-ink-2 hover:bg-white hover:text-ink',
                 )}
               >
@@ -267,7 +314,7 @@ export function OnboardingView({ contacts, selectedContactId, onApply, onNavigat
             <div className="space-y-4">
               <div className="rounded-2xl border border-brand/20 bg-gradient-to-r from-brand-soft/60 to-white p-5">
                 <div className="flex items-start gap-3">
-                  <Rocket className="h-5 w-5 text-brand shrink-0 mt-0.5" />
+                  <Rocket className="mt-0.5 h-5 w-5 shrink-0 text-brand" />
                   <div>
                     <h3 className="text-sm font-bold text-ink">Шинэ ажилтны баталгаажуулах 7 алхам</h3>
                     <p className="mt-1 text-xs text-ink-2">
@@ -276,17 +323,14 @@ export function OnboardingView({ contacts, selectedContactId, onApply, onNavigat
                   </div>
                 </div>
 
-                {/* Progress bar */}
                 <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-white">
-                  <div
-                    className="h-full bg-brand transition-all duration-300"
-                    style={{ width: `${progressPercent}%` }}
-                  />
+                  <div className="h-full bg-brand transition-all duration-300" style={{ width: `${progressPercent}%` }} />
                 </div>
               </div>
 
               <div className="space-y-3">
-                {ONBOARDING_STEPS.map((s, idx) => {
+                {filteredSteps.map((s) => {
+                  const idx = ONBOARDING_STEPS.findIndex((x) => x.id === s.id);
                   const done = completedSteps.includes(s.id);
                   return (
                     <div
@@ -309,24 +353,19 @@ export function OnboardingView({ contacts, selectedContactId, onApply, onNavigat
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-bold text-brand">0{idx + 1}.</span>
-                          <h4 className={clsx('text-[14px] font-semibold', done && 'line-through text-ink-3')}>
-                            {s.title}
-                          </h4>
-                          <span className="ml-auto rounded-md bg-panel px-2 py-0.5 text-[11px] font-medium text-ink-2">
-                            {s.tag}
-                          </span>
+                          <h4 className={clsx('text-[14px] font-semibold', done && 'line-through text-ink-3')}>{s.title}</h4>
+                          <span className="ml-auto rounded-md bg-panel px-2 py-0.5 text-[11px] font-medium text-ink-2">{s.tag}</span>
                         </div>
-                        <p className={clsx('mt-1 text-xs leading-relaxed', done ? 'text-ink-3' : 'text-ink-2')}>
-                          {s.desc}
-                        </p>
+                        <p className={clsx('mt-1 text-xs leading-relaxed', done ? 'text-ink-3' : 'text-ink-2')}>{s.desc}</p>
                       </div>
                     </div>
                   );
                 })}
+                {!filteredSteps.length && <p className="py-6 text-center text-xs text-ink-3">Хайлтад тохирох алхам олдсонгүй.</p>}
               </div>
 
               {onNavigateToQuestions && (
-                <div className="flex items-center justify-between rounded-2xl border border-line bg-white p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-white p-4">
                   <div className="flex items-center gap-3">
                     <MessageSquareShare className="h-5 w-5 text-brand" />
                     <div>
@@ -349,7 +388,7 @@ export function OnboardingView({ contacts, selectedContactId, onApply, onNavigat
           {tab === 'blueprint' && (
             <div className="space-y-4">
               <div className="rounded-2xl border border-line bg-white p-5">
-                <h3 className="text-sm font-bold text-ink flex items-center gap-2">
+                <h3 className="flex items-center gap-2 text-sm font-bold text-ink">
                   <Calendar className="h-4 w-4 text-brand" />
                   30 Хоногийн амжилтын төлөвлөгөө
                 </h3>
@@ -359,16 +398,14 @@ export function OnboardingView({ contacts, selectedContactId, onApply, onNavigat
               </div>
 
               <div className="grid grid-cols-1 gap-4">
-                {WEEKS.map((w, idx) => (
+                {filteredWeeks.map((w, idx) => (
                   <div key={idx} className="rounded-2xl border border-line bg-white p-5 shadow-sm">
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3">
                       <div>
                         <span className="text-xs font-bold text-brand">{w.week}</span>
                         <h4 className="text-base font-bold text-ink">{w.title}</h4>
                       </div>
-                      <span className="rounded-full bg-brand-soft px-3 py-1 text-xs font-semibold text-brand">
-                        Зорилго: {w.goal}
-                      </span>
+                      <span className="rounded-full bg-brand-soft px-3 py-1 text-xs font-semibold text-brand">Зорилго: {w.goal}</span>
                     </div>
 
                     <div className="mt-3.5 space-y-2">
@@ -376,21 +413,22 @@ export function OnboardingView({ contacts, selectedContactId, onApply, onNavigat
                       <ul className="space-y-1.5">
                         {w.tasks.map((t, tidx) => (
                           <li key={tidx} className="flex items-start gap-2 text-xs text-ink">
-                            <span className="text-brand font-bold">•</span>
+                            <span className="font-bold text-brand">•</span>
                             <span>{t}</span>
                           </li>
                         ))}
                       </ul>
                     </div>
 
-                    <div className="mt-3.5 rounded-xl bg-panel p-2.5 flex items-center gap-2">
-                      <Award className="h-4 w-4 text-amber-600 shrink-0" />
+                    <div className="mt-3.5 flex items-center gap-2 rounded-xl bg-panel p-2.5">
+                      <Award className="h-4 w-4 shrink-0 text-amber-600" />
                       <p className="text-xs font-medium text-ink">
                         <strong className="text-ink">Долоо хоногийн KPI:</strong> {w.kpi}
                       </p>
                     </div>
                   </div>
                 ))}
+                {!filteredWeeks.length && <p className="py-6 text-center text-xs text-ink-3">Хайлтад тохирох хөтөлбөр олдсонгүй.</p>}
               </div>
             </div>
           )}
@@ -398,31 +436,31 @@ export function OnboardingView({ contacts, selectedContactId, onApply, onNavigat
           {/* TAB 3: STANDARDS */}
           {tab === 'standards' && (
             <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="rounded-2xl border border-line bg-white p-5 space-y-3">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="space-y-3 rounded-2xl border border-line bg-white p-5">
                   <div className="flex items-center gap-2 text-brand">
                     <Clock className="h-5 w-5" />
                     <h3 className="text-sm font-bold text-ink">15 Минутын алтан дүрэм</h3>
                   </div>
-                  <p className="text-xs text-ink-2 leading-relaxed">
+                  <p className="text-xs leading-relaxed text-ink-2">
                     Утсаар эсвэл уулзалтаар ярилцсанаас хойш <strong>15 минутын дотор</strong> чатаар эсвэл имэйлээр:
                   </p>
-                  <ul className="space-y-1 text-xs text-ink pl-4 list-disc">
+                  <ul className="list-disc space-y-1 pl-4 text-xs text-ink">
                     <li>1 хуудас товч харьцуулалт</li>
                     <li>Хураамжийн тооцоо</li>
                     <li>1-Click төлбөрийн баталгаажуулах линкийг илгээх ёстой.</li>
                   </ul>
-                  <div className="rounded-xl bg-brand-soft p-2.5 text-xs text-brand font-medium">
+                  <div className="rounded-xl bg-brand-soft p-2.5 text-xs font-medium text-brand">
                     💡 Статистик: 15 минутад багтаж линк илгээхэд харилцагч шууд зөвшөөрөх магадлал 3.4 дахин өндөр байдаг.
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-line bg-white p-5 space-y-3">
+                <div className="space-y-3 rounded-2xl border border-line bg-white p-5">
                   <div className="flex items-center gap-2 text-brand">
                     <Zap className="h-5 w-5" />
                     <h3 className="text-sm font-bold text-ink">3 Минутын онлайн амлалт</h3>
                   </div>
-                  <p className="text-xs text-ink-2 leading-relaxed">
+                  <p className="text-xs leading-relaxed text-ink-2">
                     «Та салбар дээр очиж дугаарлах шаардлагагүй, би чатаар 3 минутад гэрээг тань нээгээд баталгаажуулна.»
                   </p>
                   <div className="space-y-1.5 text-xs text-ink">
@@ -432,12 +470,12 @@ export function OnboardingView({ contacts, selectedContactId, onApply, onNavigat
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-line bg-white p-5 space-y-3">
-                <h3 className="text-sm font-bold text-ink flex items-center gap-2">
+              <div className="space-y-3 rounded-2xl border border-line bg-white p-5">
+                <h3 className="flex items-center gap-2 text-sm font-bold text-ink">
                   <PhoneCall className="h-4 w-4 text-brand" />
                   Дуудлагын стандарт бүтэц (Call Flow)
                 </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 text-xs">
+                <div className="grid grid-cols-1 gap-2.5 text-xs sm:grid-cols-4">
                   <div className="rounded-xl border border-line bg-panel p-3">
                     <span className="font-bold text-brand">1. Эхлэл (15 сек)</span>
                     <p className="mt-1 text-ink-2">Мэндчилгээ + Дижитал үнэ цэнийн амлалт.</p>
@@ -463,7 +501,7 @@ export function OnboardingView({ contacts, selectedContactId, onApply, onNavigat
           {tab === 'mistakes' && (
             <div className="space-y-4">
               <div className="rounded-2xl border border-line bg-white p-5">
-                <h3 className="text-sm font-bold text-ink flex items-center gap-2">
+                <h3 className="flex items-center gap-2 text-sm font-bold text-ink">
                   <Lightbulb className="h-4 w-4 text-amber-500" />
                   Шинэ борлуулагчийн гаргадаг 6 алдаа & Засах арга
                 </h3>
@@ -472,18 +510,19 @@ export function OnboardingView({ contacts, selectedContactId, onApply, onNavigat
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {MISTAKES.map((m, idx) => (
-                  <div key={idx} className="rounded-2xl border border-line bg-white p-4 space-y-2.5">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {filteredMistakes.map((m, idx) => (
+                  <div key={idx} className="space-y-2.5 rounded-2xl border border-line bg-white p-4">
                     <h4 className="text-[13.5px] font-bold text-rose-600">{m.title}</h4>
-                    <p className="text-xs text-ink-2 leading-relaxed">
+                    <p className="text-xs leading-relaxed text-ink-2">
                       <strong>Алдаа:</strong> {m.desc}
                     </p>
-                    <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-2.5 text-xs text-emerald-800">
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-2.5 text-xs text-emerald-800">
                       <strong>✅ Засах арга:</strong> {m.fix}
                     </div>
                   </div>
                 ))}
+                {!filteredMistakes.length && <p className="col-span-full py-6 text-center text-xs text-ink-3">Хайлтад тохирох алдаа олдсонгүй.</p>}
               </div>
             </div>
           )}
@@ -492,7 +531,7 @@ export function OnboardingView({ contacts, selectedContactId, onApply, onNavigat
           {tab === 'scripts' && (
             <div className="space-y-4">
               <div className="rounded-2xl border border-line bg-white p-5">
-                <h3 className="text-sm font-bold text-ink flex items-center gap-2">
+                <h3 className="flex items-center gap-2 text-sm font-bold text-ink">
                   <Sparkles className="h-4 w-4 text-brand" />
                   Шинэ ажилтны бэлэн ярианы скриптүүд
                 </h3>
@@ -502,22 +541,9 @@ export function OnboardingView({ contacts, selectedContactId, onApply, onNavigat
               </div>
 
               <div className="space-y-4">
-                {[
-                  {
-                    title: 'Утсаар эхлэх эхний 15 секундийн скрипт',
-                    script: 'Сайн байна уу, [Харилцагчийн нэр] ээ? Таны энэ өдрийн ажилд амжилт хүсье. Бид жолооч, харилцагчдадаа салбар дээр очих шаардлагагүйгээр утсаараа 3 минутад даатгуулаад, тохиолдол гарвал цахимаар 3 өдөрт нөхөн төлбөрөө авах боломж олгож байгаа юм. Та одоогийн тээврийн хэрэгслийн даатгалаа ийм шуурхай цахим нөхцөлөөр шинэчлэхийг сонирхох уу?',
-                  },
-                  {
-                    title: '«Өөр газар даатгалтай» гэх үед хэлэх скрипт',
-                    script: 'Маш сайн байна аа! Таны хувьд одоогийн даатгалынхаа яг ямар нөхцөл, үйлчилгээнд нь хамгийн сэтгэл хангалуун байдаг вэ? Мөн хэрэв сайжруулах боломж байвал юуг нь өөрчилмөөр байна?',
-                  },
-                  {
-                    title: 'Хаалтын скрипт (1-Click төлбөрийн линк)',
-                    script: 'Танд салбар дээр очиж бичиг баримт авч очих ямар ч шаардлага байхгүй. Би одоо таны чат руу төлбөрийн найдвартай баталгаажуулах холбоос илгээчихье, та утаснаасаа 2 минутад баталгаажуулчих уу?',
-                  },
-                ].map((s, idx) => (
-                  <div key={idx} className="rounded-2xl border border-line bg-white p-4 space-y-2">
-                    <div className="flex items-center justify-between">
+                {filteredScripts.map((s, idx) => (
+                  <div key={idx} className="space-y-2 rounded-2xl border border-line bg-white p-4">
+                    <div className="flex items-center justify-between gap-2">
                       <h4 className="text-xs font-bold text-ink">{s.title}</h4>
                       <button
                         onClick={() => handleCopy(s.script)}
@@ -527,11 +553,10 @@ export function OnboardingView({ contacts, selectedContactId, onApply, onNavigat
                         {copiedText === s.script ? 'Хуулагдлаа!' : 'Хуулах'}
                       </button>
                     </div>
-                    <div className="rounded-xl bg-panel p-3 text-xs text-ink leading-relaxed font-mono">
-                      {s.script}
-                    </div>
+                    <div className="rounded-xl bg-panel p-3 font-mono text-xs leading-relaxed text-ink">{s.script}</div>
                   </div>
                 ))}
+                {!filteredScripts.length && <p className="py-6 text-center text-xs text-ink-3">Хайлтад тохирох скрипт олдсонгүй.</p>}
               </div>
             </div>
           )}
@@ -539,18 +564,20 @@ export function OnboardingView({ contacts, selectedContactId, onApply, onNavigat
       </div>
 
       {/* Apply Bar */}
-      <ApplyBar
-        contacts={contacts}
-        defaultContactId={selectedContactId}
-        label="Харилцагч руу илгээж AI коучтай дадлага хийх:"
-        buttonText="Коуч чатад нээх"
-        onApply={(cid) =>
-          onApply(
-            cid,
-            `Би энэ харилцагч дээр Onboarding-ийн эхний дуудлагын дадлага хийж байна. Харилцагчийн нэр, үүрэгт тааруулан Практикалын 3 минутын дижитал даатгалын амлалтыг шингээсэн хамгийн сайн эхлэх асуулт, бүтээгдэхүүний жишээ тооцоог бэлдэж өгөөрэй.`,
-          )
-        }
-      />
+      <div className="shrink-0 border-t border-line bg-panel px-6 py-3.5">
+        <ApplyBar
+          contacts={contacts}
+          defaultContactId={selectedContactId}
+          label="Харилцагч руу илгээж AI коучтай дадлага хийх"
+          buttonText="Коуч чатад нээх"
+          onApply={(cid) =>
+            onApply(
+              cid,
+              `Би энэ харилцагч дээр Onboarding-ийн эхний дуудлагын дадлага хийж байна. Харилцагчийн нэр, үүрэгт тааруулан Практикалын 3 минутын дижитал даатгалын амлалтыг шингээсэн хамгийн сайн эхлэх асуулт, бүтээгдэхүүний жишээ тооцоог бэлдэж өгөөрэй.`,
+            )
+          }
+        />
+      </div>
     </div>
   );
 }

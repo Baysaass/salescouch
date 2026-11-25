@@ -16,7 +16,7 @@ import { SKILLS, SKILL_MAP } from '@/lib/skills';
 import { PRODUCTS, PRODUCT_MAP } from '@/lib/products';
 
 interface Props {
-  user: { name: string; email: string; image: string | null };
+  user: { id?: string; name: string; email: string; image: string | null };
   aiEnabled: boolean;
   dbMode: 'supabase' | 'local';
 }
@@ -29,6 +29,7 @@ export function Workspace({ user, aiEnabled, dbMode }: Props) {
   const [streaming, setStreaming] = useState(false);
   const [query, setQuery] = useState('');
   const [view, setView] = useState<View>('chat');
+  const [questionsCount, setQuestionsCount] = useState(8);
   const [pending, setPending] = useState<{ contactId: string; content: string; skill: string | null } | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +37,7 @@ export function Workspace({ user, aiEnabled, dbMode }: Props) {
 
   const selected = useMemo(() => contacts.find((c) => c.id === selectedId) ?? null, [contacts, selectedId]);
 
-  // Харилцагчдыг ачаалах
+  // Харилцагчид болон асуултын тоог ачаалах
   useEffect(() => {
     fetch('/api/contacts')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('Харилцагч ачаалж чадсангүй'))))
@@ -46,6 +47,13 @@ export function Workspace({ user, aiEnabled, dbMode }: Props) {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoadingContacts(false));
+
+    fetch('/api/questions')
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: unknown[]) => {
+        if (Array.isArray(rows)) setQuestionsCount(rows.length);
+      })
+      .catch(() => {});
   }, []);
 
   // Сонгосон харилцагчийн чат
@@ -162,6 +170,13 @@ export function Workspace({ user, aiEnabled, dbMode }: Props) {
   }, [pending, loadedFor, selectedId, streaming, send]);
 
   const applyToContact = useCallback((contactId: string, content: string, skill: string | null) => {
+    if (!contactId) {
+      setView('chat');
+      setQuery('');
+      setFormOpen(true);
+      setError('Эхлээд харилцагч бүртгэсний дараа коуч чатад ашиглана уу.');
+      return;
+    }
     setView('chat');
     setQuery('');
     setSelectedId(contactId);
@@ -203,7 +218,7 @@ export function Workspace({ user, aiEnabled, dbMode }: Props) {
           contacts: contacts.length,
           playbook: 3,
           onboarding: 7,
-          questions: 8,
+          questions: questionsCount,
           docs: SKILLS.length,
           products: PRODUCTS.length,
         }}
@@ -212,6 +227,7 @@ export function Workspace({ user, aiEnabled, dbMode }: Props) {
       <div className="flex min-w-0 flex-1 overflow-hidden rounded-2xl border border-line bg-panel">
         {view === 'onboarding' && (
           <OnboardingView
+            query={query}
             contacts={contacts}
             selectedContactId={selectedId}
             onApply={(cid, text) => applyToContact(cid, text, null)}
@@ -228,6 +244,7 @@ export function Workspace({ user, aiEnabled, dbMode }: Props) {
             contacts={contacts}
             selectedContactId={selectedId}
             onApply={(cid, text) => applyToContact(cid, text, null)}
+            onCountChange={setQuestionsCount}
             currentUser={user}
           />
         )}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Play } from 'lucide-react';
 import type { ContactDTO } from './types';
 
@@ -19,6 +19,15 @@ export function ApplyBar({
   onApply: (contactId: string) => void;
 }) {
   const [cid, setCid] = useState(defaultContactId ?? contacts[0]?.id ?? '');
+
+  useEffect(() => {
+    setCid((prev) => {
+      if (defaultContactId && contacts.some((c) => c.id === defaultContactId)) return defaultContactId;
+      if (prev && contacts.some((c) => c.id === prev)) return prev;
+      return contacts[0]?.id ?? '';
+    });
+  }, [contacts, defaultContactId]);
+
   if (!contacts.length) {
     return <p className="text-sm text-ink-3">Энэ аргыг хэрэглэхийн тулд эхлээд “Харилцагчид” хэсэгт харилцагч нэмнэ үү.</p>;
   }

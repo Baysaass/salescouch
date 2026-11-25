@@ -1,23 +1,21 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  AlertCircle,
   Check,
   ChevronDown,
   ChevronUp,
   Copy,
-  Flame,
   HelpCircle,
   Lightbulb,
   MessageCircle,
   MessageSquareShare,
   Plus,
-  Search,
   Send,
-  Share2,
   Sparkles,
   ThumbsUp,
-  User,
+  Trash2,
   X,
 } from 'lucide-react';
 import type { ContactDTO, QuestionDTO, QuestionCommentDTO } from './types';
@@ -31,16 +29,20 @@ interface Props {
   contacts: ContactDTO[];
   selectedContactId: string | null;
   onApply: (contactId: string, text: string) => void;
-  currentUser: { name: string; email: string; image: string | null };
+  onCountChange?: (count: number) => void;
+  currentUser: { id?: string; name: string; email: string; image: string | null };
 }
 
-export function QuestionsView({ query, contacts, selectedContactId, onApply, currentUser }: Props) {
+export function QuestionsView({ query, contacts, selectedContactId, onApply, onCountChange, currentUser }: Props) {
   const [questions, setQuestions] = useState<QuestionDTO[]>([]);
   const [loading, setLoading] = useState(true);
+  const [apiError, setApiError] = useState<string | null>(null);
   const [category, setCategory] = useState<string>('all');
   const [sort, setSort] = useState<'votes' | 'newest'>('votes');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+
+  const currentUserId = currentUser.id || currentUser.email.toLowerCase();
 
   // Сэтгэгдлийн нээлттэй хэсгүүдийн state
   const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({});
@@ -57,26 +59,41 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
   const [creating, setCreating] = useState(false);
 
   // Асуултуудыг татах
-  const fetchQuestions = () => {
+  const fetchQuestions = useCallback(async () => {
     setLoading(true);
-    fetch(`/api/questions?category=${category}&sort=${sort}`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data: QuestionDTO[]) => setQuestions(data))
-      .catch(() => setQuestions([]))
-      .finally(() => setLoading(false));
-  };
+    setApiError(null);
+    try {
+      const r = await fetch(`/api/questions?category=${category}&sort=${sort}`);
+      if (!r.ok) {
+        const err = await r.json().catch(() => null);
+        throw new Error(err?.error || 'Асуултын санг ачаалж чадсангүй');
+      }
+      const data: QuestionDTO[] = await r.json();
+      setQuestions(data);
+      if (category === 'all' && onCountChange) {
+        onCountChange(data.length);
+      }
+    } catch (err) {
+      setApiError((err as Error).message);
+      setQuestions([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [category, sort, onCountChange]);
 
   useEffect(() => {
     fetchQuestions();
-  }, [category, sort]);
+  }, [fetchQuestions]);
 
   // Vote өгөх / цуцлах
   const handleVote = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    // Орон нутгийн state-ийг түргэн шинэчлэх (optimistic update)
+    setApiError(null);
+    let prevSnapshot: QuestionDTO | undefined;
     setQuestions((prev) =>
       prev.map((q) => {
         if (q.id !== id) return q;
+        prevSnapshot = q;
         const willVote = !q.userVoted;
         return {
           ...q,
@@ -88,14 +105,17 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
 
     try {
       const res = await fetch(`/api/questions/${id}/vote`, { method: 'POST' });
-      if (res.ok) {
-        const data = await res.json();
-        setQuestions((prev) =>
-          prev.map((q) => (q.id === id ? { ...q, userVoted: data.voted, votesCount: data.votesCount } : q)),
-        );
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || 'Vote өгөхөд алдаа гарлаа');
       }
+      const data = await res.json();
+      setQuestions((prev) => prev.map((q) => (q.id === id ? { ...q, userVoted: data.voted, votesCount: data.votesCount } : q)));
     } catch (err) {
-      console.error('Vote failed:', err);
+      if (prevSnapshot) {
+        setQuestions((prev) => prev.map((q) => (q.id === id ? prevSnapshot! : q)));
+      }
+      setApiError((err as Error).message);
     }
   };
 
@@ -108,12 +128,11 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
       setLoadingComments((prev) => ({ ...prev, [questionId]: true }));
       try {
         const res = await fetch(`/api/questions/${questionId}/comments`);
-        if (res.ok) {
-          const rows = await res.json();
-          setCommentsByQuestion((prev) => ({ ...prev, [questionId]: rows }));
-        }
+        if (!res.ok) throw new Error('Сэтгэгдэл татаж чадсангүй');
+        const rows = await res.json();
+        setCommentsByQuestion((prev) => ({ ...prev, [questionId]: rows }));
       } catch (err) {
-        console.error('Fetch comments failed:', err);
+        setApiError((err as Error).message);
       } finally {
         setLoadingComments((prev) => ({ ...prev, [questionId]: false }));
       }
@@ -125,6 +144,7 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
     const text = (newCommentText[questionId] || '').trim();
     if (!text || submittingComment[questionId]) return;
 
+    setApiError(null);
     setSubmittingComment((prev) => ({ ...prev, [questionId]: true }));
     try {
       const res = await fetch(`/api/questions/${questionId}/comments`, {
@@ -132,21 +152,63 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: text }),
       });
-      if (res.ok) {
-        const created: QuestionCommentDTO = await res.json();
-        setCommentsByQuestion((prev) => ({
-          ...prev,
-          [questionId]: [...(prev[questionId] || []), created],
-        }));
-        setNewCommentText((prev) => ({ ...prev, [questionId]: '' }));
-        setQuestions((prev) =>
-          prev.map((q) => (q.id === questionId ? { ...q, commentsCount: q.commentsCount + 1 } : q)),
-        );
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || 'Сэтгэгдэл хадгалж чадсангүй');
       }
+      const created: QuestionCommentDTO = await res.json();
+      setCommentsByQuestion((prev) => ({
+        ...prev,
+        [questionId]: [...(prev[questionId] || []), created],
+      }));
+      setNewCommentText((prev) => ({ ...prev, [questionId]: '' }));
+      setQuestions((prev) => prev.map((q) => (q.id === questionId ? { ...q, commentsCount: q.commentsCount + 1 } : q)));
     } catch (err) {
-      console.error('Add comment failed:', err);
+      setApiError((err as Error).message);
     } finally {
       setSubmittingComment((prev) => ({ ...prev, [questionId]: false }));
+    }
+  };
+
+  // Өөрийн сэтгэгдлийг устгах
+  const handleDeleteComment = async (questionId: string, commentId: string) => {
+    if (!confirm('Энэ сэтгэгдлийг устгах уу?')) return;
+    setApiError(null);
+    try {
+      const res = await fetch(`/api/questions/${questionId}/comments?commentId=${commentId}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || 'Сэтгэгдэл устгаж чадсангүй');
+      }
+      setCommentsByQuestion((prev) => ({
+        ...prev,
+        [questionId]: (prev[questionId] || []).filter((c) => c.id !== commentId),
+      }));
+      setQuestions((prev) =>
+        prev.map((q) => (q.id === questionId ? { ...q, commentsCount: Math.max(0, q.commentsCount - 1) } : q)),
+      );
+    } catch (err) {
+      setApiError((err as Error).message);
+    }
+  };
+
+  // Өөрийн асуултыг устгах
+  const handleDeleteQuestion = async (id: string) => {
+    if (!confirm('Энэ асуултыг сангаас устгах уу?')) return;
+    setApiError(null);
+    try {
+      const res = await fetch(`/api/questions/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || 'Асуулт устгаж чадсангүй');
+      }
+      setQuestions((prev) => {
+        const next = prev.filter((q) => q.id !== id);
+        if (category === 'all' && onCountChange) onCountChange(next.length);
+        return next;
+      });
+    } catch (err) {
+      setApiError((err as Error).message);
     }
   };
 
@@ -155,6 +217,7 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
     e.preventDefault();
     if (!newTitle.trim() || !newQuestion.trim() || creating) return;
 
+    setApiError(null);
     setCreating(true);
     try {
       const res = await fetch('/api/questions', {
@@ -167,15 +230,17 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
           context: newContext.trim() || null,
         }),
       });
-      if (res.ok) {
-        setNewTitle('');
-        setNewQuestion('');
-        setNewContext('');
-        setModalOpen(false);
-        fetchQuestions();
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || 'Асуулт нийтлэхэд алдаа гарлаа');
       }
+      setNewTitle('');
+      setNewQuestion('');
+      setNewContext('');
+      setModalOpen(false);
+      await fetchQuestions();
     } catch (err) {
-      console.error('Create question failed:', err);
+      setApiError((err as Error).message);
     } finally {
       setCreating(false);
     }
@@ -200,6 +265,8 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
     );
   }, [questions, query]);
 
+  const targetContactId = selectedContactId || contacts[0]?.id || '';
+
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       {/* Top Banner */}
@@ -222,14 +289,14 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
             {/* Sort toggle */}
             <div className="inline-flex rounded-xl border border-line bg-white p-1 text-xs font-medium">
               <button
                 onClick={() => setSort('votes')}
                 className={clsx(
                   'rounded-lg px-2.5 py-1 transition-colors',
-                  sort === 'votes' ? 'bg-brand text-white shadow-sm font-semibold' : 'text-ink-2 hover:text-ink',
+                  sort === 'votes' ? 'bg-brand font-semibold text-white shadow-sm' : 'text-ink-2 hover:text-ink',
                 )}
               >
                 Хамгийн олон Vote
@@ -238,7 +305,7 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
                 onClick={() => setSort('newest')}
                 className={clsx(
                   'rounded-lg px-2.5 py-1 transition-colors',
-                  sort === 'newest' ? 'bg-brand text-white shadow-sm font-semibold' : 'text-ink-2 hover:text-ink',
+                  sort === 'newest' ? 'bg-brand font-semibold text-white shadow-sm' : 'text-ink-2 hover:text-ink',
                 )}
               >
                 Сүүлд нэмэгдсэн
@@ -265,10 +332,10 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
                 key={key}
                 onClick={() => setCategory(key)}
                 className={clsx(
-                  'rounded-full px-3 py-1 text-xs font-medium transition-all whitespace-nowrap',
+                  'whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium transition-all',
                   active
-                    ? 'bg-ink text-white font-semibold shadow-sm'
-                    : 'bg-white border border-line text-ink-2 hover:border-brand hover:text-ink',
+                    ? 'bg-ink font-semibold text-white shadow-sm'
+                    : 'border border-line bg-white text-ink-2 hover:border-brand hover:text-ink',
                 )}
               >
                 {item.label}
@@ -277,6 +344,19 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
           })}
         </div>
       </div>
+
+      {/* Inline Error Alert */}
+      {apiError && (
+        <div className="mx-6 mt-4 flex items-center justify-between gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs text-rose-700">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{apiError}</span>
+          </div>
+          <button onClick={() => setApiError(null)} className="rounded p-0.5 hover:bg-rose-100">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Main Stream Area */}
       <div className="scroll-thin flex-1 overflow-y-auto px-6 py-6">
@@ -295,7 +375,7 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
                 onClick={() => setModalOpen(true)}
                 className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-brand px-4 py-2 text-xs font-semibold text-white"
               >
-                <Plus className="h-4 w-4" /> Анхны асуултыг нэмэх
+                <Plus className="h-4 w-4" /> Шинэ асуулт нэмэх
               </button>
             </div>
           ) : (
@@ -303,19 +383,17 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
               const catMeta = CATEGORY_LABELS[q.category] || CATEGORY_LABELS.discovery;
               const isCommentsOpen = Boolean(expandedComments[q.id]);
               const comments = commentsByQuestion[q.id] || [];
+              const canDeleteQuestion = q.userId === currentUserId;
 
               return (
-                <div
-                  key={q.id}
-                  className="rounded-2xl border border-line bg-white shadow-sm transition-all hover:border-brand/40"
-                >
+                <div key={q.id} className="rounded-2xl border border-line bg-white shadow-sm transition-all hover:border-brand/40">
                   {/* Card Header */}
                   <div className="p-5 pb-3">
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2.5">
                         <Avatar name={q.authorName} image={q.authorImage} size={32} />
                         <div>
-                          <p className="text-[13px] font-semibold text-ink leading-tight">{q.authorName}</p>
+                          <p className="text-[13px] font-semibold leading-tight text-ink">{q.authorName}</p>
                           <p className="text-[11px] text-ink-3">
                             {new Date(q.createdAt).toLocaleDateString('mn-MN', {
                               month: 'short',
@@ -325,14 +403,20 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
                         </div>
                       </div>
 
-                      <span
-                        className={clsx(
-                          'rounded-full border px-2.5 py-0.5 text-[11px] font-semibold',
-                          catMeta.color,
+                      <div className="flex items-center gap-1.5">
+                        <span className={clsx('rounded-full border px-2.5 py-0.5 text-[11px] font-semibold', catMeta.color)}>
+                          {catMeta.label}
+                        </span>
+                        {canDeleteQuestion && (
+                          <button
+                            onClick={() => handleDeleteQuestion(q.id)}
+                            title="Өөрийн асуултыг устгах"
+                            className="rounded-lg p-1 text-ink-3 hover:bg-rose-50 hover:text-rose-600"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
                         )}
-                      >
-                        {catMeta.label}
-                      </span>
+                      </div>
                     </div>
 
                     {/* Question Title & Text */}
@@ -340,14 +424,12 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
                       <h3 className="text-[15px] font-bold text-ink">{q.title}</h3>
 
                       <div className="rounded-xl border border-brand/20 bg-brand-soft/20 p-3.5">
-                        <p className="text-[14px] font-medium text-ink leading-relaxed font-serif italic">
-                          {q.question}
-                        </p>
+                        <p className="font-serif text-[14px] font-medium italic leading-relaxed text-ink">{q.question}</p>
                       </div>
 
                       {q.context && (
                         <div className="flex items-start gap-2 pt-1 text-xs text-ink-2">
-                          <Lightbulb className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+                          <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
                           <p>{q.context}</p>
                         </div>
                       )}
@@ -355,7 +437,7 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
                   </div>
 
                   {/* Actions Bar */}
-                  <div className="flex items-center justify-between border-t border-line/70 px-5 py-2.5 bg-panel/40 rounded-b-2xl">
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-b-2xl border-t border-line/70 bg-panel/40 px-5 py-2.5">
                     <div className="flex items-center gap-2">
                       {/* Vote Button */}
                       <button
@@ -377,7 +459,7 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
                         className={clsx(
                           'inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors',
                           isCommentsOpen
-                            ? 'border-brand/40 bg-brand-soft text-brand font-semibold'
+                            ? 'border-brand/40 bg-brand-soft font-semibold text-brand'
                             : 'border-line bg-white text-ink-2 hover:bg-panel hover:text-ink',
                         )}
                       >
@@ -402,11 +484,11 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
                       <button
                         onClick={() =>
                           onApply(
-                            selectedContactId || '',
+                            targetContactId,
                             `Би харилцагчид дараах асуултыг тавих гэж байна: "${q.question}". Энэ харилцагчийн нөхцөлд энэ асуултыг хэрхэн эвтэйхэн хэлэх, хариулснаас нь шалтгаалан ямар бүтээгдэхүүнийг яаж холбохыг зөвлөөрэй.`,
                           )
                         }
-                        className="inline-flex items-center gap-1 rounded-xl bg-ink text-white px-2.5 py-1.5 text-xs font-medium hover:bg-ink-2"
+                        className="inline-flex items-center gap-1 rounded-xl bg-ink px-2.5 py-1.5 text-xs font-medium text-white hover:bg-ink-2"
                         title="Коуч чатад ашиглах"
                       >
                         <Sparkles className="h-3.5 w-3.5 text-amber-300" />
@@ -417,7 +499,7 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
 
                   {/* Comments Thread (Collapsible) */}
                   {isCommentsOpen && (
-                    <div className="border-t border-line bg-panel/30 p-5 space-y-3.5">
+                    <div className="space-y-3.5 border-t border-line bg-panel/30 p-5">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-ink">
                           💬 Хамт олны хуваалцсан туршлага, үр дүн ({q.commentsCount}):
@@ -427,25 +509,24 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
 
                       {/* Comment Input */}
                       <div className="flex items-start gap-2.5">
-                        <Avatar name={currentUser.name} image={currentUser.image} size={28} />
+                        <Avatar name={currentUser.name || currentUser.email} image={currentUser.image} size={28} />
                         <div className="flex-1 space-y-2">
                           <textarea
                             rows={2}
+                            maxLength={2000}
                             value={newCommentText[q.id] || ''}
-                            onChange={(e) =>
-                              setNewCommentText((prev) => ({ ...prev, [q.id]: e.target.value }))
-                            }
+                            onChange={(e) => setNewCommentText((prev) => ({ ...prev, [q.id]: e.target.value }))}
                             placeholder="«Энэ асуултыг асуух үед харилцагч ингэж хариулаад, манай Хялбар даатгалыг сонирхсон...»"
-                            className="w-full rounded-xl border border-line bg-white p-2.5 text-xs text-ink outline-none focus:border-brand placeholder:text-ink-3"
+                            className="w-full rounded-xl border border-line bg-white p-2.5 text-xs text-ink outline-none placeholder:text-ink-3 focus:border-brand"
                           />
                           <div className="flex justify-end">
                             <button
                               disabled={!newCommentText[q.id]?.trim() || submittingComment[q.id]}
                               onClick={() => handleAddComment(q.id)}
-                              className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50 hover:bg-brand-600"
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-600 disabled:opacity-50"
                             >
                               <Send className="h-3 w-3" />
-                              <span>Туршлага хуваалцах</span>
+                              <span>{submittingComment[q.id] ? 'Илгээж байна...' : 'Туршлага хуваалцах'}</span>
                             </button>
                           </div>
                         </div>
@@ -453,32 +534,46 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
 
                       {/* Existing comments list */}
                       {loadingComments[q.id] ? (
-                        <p className="text-center text-xs text-ink-3 py-3">Сэтгэгдлийг ачаалж байна...</p>
+                        <p className="py-3 text-center text-xs text-ink-3">Сэтгэгдлийг ачаалж байна...</p>
                       ) : comments.length === 0 ? (
-                        <p className="text-center text-xs text-ink-3 py-3">
+                        <p className="py-3 text-center text-xs text-ink-3">
                           Одоогоор туршлага бичигдээгүй байна. Та анхны сэтгэгдлийг бичээрэй!
                         </p>
                       ) : (
                         <div className="space-y-2.5 pt-1">
-                          {comments.map((c) => (
-                            <div key={c.id} className="rounded-xl border border-line/60 bg-white p-3 space-y-1">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <Avatar name={c.authorName} image={c.authorImage} size={22} />
-                                  <span className="text-xs font-bold text-ink">{c.authorName}</span>
+                          {comments.map((c) => {
+                            const canDeleteComment = c.userId === currentUserId;
+                            return (
+                              <div key={c.id} className="space-y-1 rounded-xl border border-line/60 bg-white p-3">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <Avatar name={c.authorName} image={c.authorImage} size={22} />
+                                    <span className="text-xs font-bold text-ink">{c.authorName}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[11px] text-ink-3">
+                                      {new Date(c.createdAt).toLocaleDateString('mn-MN', {
+                                        month: 'short',
+                                        day: 'numeric',
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                      })}
+                                    </span>
+                                    {canDeleteComment && (
+                                      <button
+                                        onClick={() => handleDeleteComment(q.id, c.id)}
+                                        title="Сэтгэгдэл устгах"
+                                        className="rounded p-0.5 text-ink-3 hover:bg-rose-50 hover:text-rose-600"
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
-                                <span className="text-[11px] text-ink-3">
-                                  {new Date(c.createdAt).toLocaleDateString('mn-MN', {
-                                    month: 'short',
-                                    day: 'numeric',
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  })}
-                                </span>
+                                <p className="pl-7 text-xs leading-relaxed text-ink-2">{c.content}</p>
                               </div>
-                              <p className="text-xs text-ink-2 pl-7 leading-relaxed">{c.content}</p>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -493,27 +588,26 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
       {/* New Question Modal */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-[540px] rounded-2xl bg-white p-6 shadow-2xl space-y-4">
+          <div className="w-full max-w-[540px] space-y-4 rounded-2xl bg-white p-6 shadow-2xl">
             <div className="flex items-center justify-between border-b border-line pb-3">
-              <h3 className="text-base font-bold text-ink flex items-center gap-2">
+              <h3 className="flex items-center gap-2 text-base font-bold text-ink">
                 <Sparkles className="h-4 w-4 text-brand" />
                 Шинэ амжилттай асуулт нийтлэх
               </h3>
-              <button
-                onClick={() => setModalOpen(false)}
-                className="rounded-lg p-1 text-ink-3 hover:bg-panel hover:text-ink"
-              >
+              <button onClick={() => setModalOpen(false)} className="rounded-lg p-1 text-ink-3 hover:bg-panel hover:text-ink">
                 <X className="h-5 w-5" />
               </button>
             </div>
 
             <form onSubmit={handleCreateQuestion} className="space-y-3.5">
               <div>
-                <label className="block text-xs font-semibold text-ink mb-1">
+                <label className="mb-1 block text-xs font-semibold text-ink">
                   Асуултын зорилго / Гарчиг <span className="text-rose-500">*</span>
                 </label>
                 <input
                   required
+                  minLength={3}
+                  maxLength={200}
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   placeholder="Жишээ: Машины үнэлгээ болон өмнөх эвдрэлийг тодруулах"
@@ -522,13 +616,13 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-ink mb-1">
+                <label className="mb-1 block text-xs font-semibold text-ink">
                   Ангилал <span className="text-rose-500">*</span>
                 </label>
                 <select
                   value={newCategory}
                   onChange={(e) => setNewCategory(e.target.value)}
-                  className="w-full rounded-xl border border-line p-2.5 text-xs text-ink outline-none focus:border-brand bg-white"
+                  className="w-full rounded-xl border border-line bg-white p-2.5 text-xs text-ink outline-none focus:border-brand"
                 >
                   <option value="discovery">Хэрэгцээ илрүүлэх (Discovery)</option>
                   <option value="spin">SPIN аргачлал</option>
@@ -541,24 +635,25 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-ink mb-1">
+                <label className="mb-1 block text-xs font-semibold text-ink">
                   Яг асуух үгс (Харилцагчид хэлэх асуулт) <span className="text-rose-500">*</span>
                 </label>
                 <textarea
                   required
+                  minLength={5}
+                  maxLength={2000}
                   rows={3}
                   value={newQuestion}
                   onChange={(e) => setNewQuestion(e.target.value)}
                   placeholder="«Та өмнө нь ямар нэг тохиолдлоор нөхөн төлбөр авах гээд салбар дээр очиж хэр их цаг алдаж байсан бэ?»"
-                  className="w-full rounded-xl border border-line p-2.5 text-xs text-ink outline-none focus:border-brand font-serif italic"
+                  className="w-full rounded-xl border border-line p-2.5 font-serif text-xs italic text-ink outline-none focus:border-brand"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-ink mb-1">
-                  Сэтгэл зүйн зөвлөмж / Хэзээ асуух вэ?
-                </label>
+                <label className="mb-1 block text-xs font-semibold text-ink">Сэтгэл зүйн зөвлөмж / Хэзээ асуух вэ?</label>
                 <textarea
+                  maxLength={2000}
                   rows={2}
                   value={newContext}
                   onChange={(e) => setNewContext(e.target.value)}
@@ -567,7 +662,7 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-2 border-t border-line">
+              <div className="flex justify-end gap-2 border-t border-line pt-2">
                 <button
                   type="button"
                   onClick={() => setModalOpen(false)}
@@ -589,18 +684,20 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, cur
       )}
 
       {/* Apply Bar */}
-      <ApplyBar
-        contacts={contacts}
-        defaultContactId={selectedContactId}
-        label="Сонгосон асуултыг харилцагчийн коучтай холбох:"
-        buttonText="Коуч чатад ашиглах"
-        onApply={(cid) =>
-          onApply(
-            cid,
-            `Би энэ харилцагч дээр Асуултын банкны discovery болон татгалзал давах асуултуудыг хэрэглэх гэж байна. Харилцагчийн мэдээлэлд тохируулан ярианы хамгийн оновчтой 2 асуулт, тооцоог бэлдэж өгөөрэй.`,
-          )
-        }
-      />
+      <div className="shrink-0 border-t border-line bg-panel px-6 py-3.5">
+        <ApplyBar
+          contacts={contacts}
+          defaultContactId={selectedContactId}
+          label="Сонгосон асуултыг харилцагчийн коучтай холбох"
+          buttonText="Коуч чатад ашиглах"
+          onApply={(cid) =>
+            onApply(
+              cid,
+              `Би энэ харилцагч дээр Асуултын банкны discovery болон татгалзал давах асуултуудыг хэрэглэх гэж байна. Харилцагчийн мэдээлэлд тохируулан ярианы хамгийн оновчтой 2 асуулт, тооцоог бэлдэж өгөөрэй.`,
+            )
+          }
+        />
+      </div>
     </div>
   );
 }
