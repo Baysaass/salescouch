@@ -3,6 +3,7 @@ import { asc, desc, eq } from 'drizzle-orm';
 import { getDb, schema } from '@/db';
 import { findContact, requireUser } from '@/lib/api';
 import { aiEnabled, localCoach, streamOpenAI } from '@/lib/coach';
+import { retrieveBankIntelligenceForContact } from '@/lib/question-agent';
 import { messageInput } from '@/lib/validators';
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -99,26 +100,27 @@ export async function POST(req: Request, { params }: Ctx) {
   };
 
   const encoder = new TextEncoder();
+  const bankQuestions = await retrieveBankIntelligenceForContact(db, contact, content, 2);
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
       let full = '';
       try {
         if (!aiEnabled()) {
-          full = localCoach(contact, content, skill);
+          full = localCoach(contact, content, skill, bankQuestions);
           for (const chunk of full.match(/[\s\S]{1,60}/g) ?? []) {
             controller.enqueue(encoder.encode(chunk));
             await new Promise((r) => setTimeout(r, 6));
           }
         } else {
           try {
-            for await (const chunk of streamOpenAI(contact, history, content, skill)) {
+            for await (const chunk of streamOpenAI(contact, history, content, skill, bankQuestions)) {
               full += chunk;
               controller.enqueue(encoder.encode(chunk));
             }
           } catch (aiErr) {
             console.warn('OpenAI алдаа гарсан тул локал коуч руу шилжлээ:', (aiErr as Error).message);
             const note = `> 💡 *OpenAI API (${(aiErr as Error).message.slice(0, 100)}) саатсан тул локал sales коуч шуурхай хариуллаа.*\n\n`;
-            full = note + localCoach(contact, content, skill);
+            full = note + localCoach(contact, content, skill, bankQuestions);
             for (const chunk of full.match(/[\s\S]{1,60}/g) ?? []) {
               controller.enqueue(encoder.encode(chunk));
               await new Promise((r) => setTimeout(r, 6));

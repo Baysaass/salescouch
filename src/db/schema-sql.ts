@@ -45,7 +45,24 @@ create index if not exists messages_contact_idx on messages(contact_id);
 create index if not exists messages_user_idx on messages(user_id);
 create index if not exists messages_created_at_idx on messages(created_at);
 
--- Асуултын банк (Question Bank)
+-- Асуултын кластер ба AI оюун ухааны дүгнэлт
+create table if not exists question_clusters (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  summary text not null,
+  performance_verdict text not null,
+  best_personas jsonb not null default '[]'::jsonb,
+  next_cluster_id uuid,
+  next_cluster_reason text,
+  refined_question text not null,
+  refined_rationale text not null,
+  centroid jsonb not null default '[]'::jsonb,
+  question_count integer not null default 0,
+  avg_votes integer not null default 0,
+  updated_at timestamptz not null default now()
+);
+
+-- Асуултын банк (Question Bank + Vector & Insights)
 create table if not exists questions (
   id uuid primary key default gen_random_uuid(),
   user_id text not null,
@@ -56,10 +73,27 @@ create table if not exists questions (
   question text not null,
   context text,
   votes_count integer not null default 0,
+  embedding jsonb,
+  embedding_model text,
+  cluster_id uuid references question_clusters(id) on delete set null,
+  persona_scores jsonb not null default '[]'::jsonb,
+  ai_analysis text,
+  refined_variant text,
+  related_question_ids jsonb not null default '[]'::jsonb,
+  analyzed_at timestamptz,
   created_at timestamptz not null default now()
 );
+alter table questions add column if not exists embedding jsonb;
+alter table questions add column if not exists embedding_model text;
+alter table questions add column if not exists cluster_id uuid;
+alter table questions add column if not exists persona_scores jsonb not null default '[]'::jsonb;
+alter table questions add column if not exists ai_analysis text;
+alter table questions add column if not exists refined_variant text;
+alter table questions add column if not exists related_question_ids jsonb not null default '[]'::jsonb;
+alter table questions add column if not exists analyzed_at timestamptz;
 create index if not exists questions_category_idx on questions(category);
 create index if not exists questions_votes_idx on questions(votes_count);
+create index if not exists questions_cluster_idx on questions(cluster_id);
 
 create table if not exists question_votes (
   id uuid primary key default gen_random_uuid(),

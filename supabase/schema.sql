@@ -1,6 +1,7 @@
 -- InsurTech Sales Coach — Supabase (Postgres) схем
 -- Supabase → SQL Editor дээр нэг удаа ажиллуулна (апп өөрөө ч эхний хүсэлтээр үүсгэнэ).
 create extension if not exists pgcrypto;
+do $$ begin create extension if not exists vector; exception when others then null; end $$;
 
 create table if not exists users (
   id text primary key,
@@ -43,7 +44,24 @@ create index if not exists messages_contact_idx on messages(contact_id);
 create index if not exists messages_user_idx on messages(user_id);
 create index if not exists messages_created_at_idx on messages(created_at);
 
--- Асуултын банк (Question Bank)
+-- Асуултын кластер ба AI оюун ухааны дүгнэлт
+create table if not exists question_clusters (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  summary text not null,
+  performance_verdict text not null,
+  best_personas jsonb not null default '[]'::jsonb,
+  next_cluster_id uuid,
+  next_cluster_reason text,
+  refined_question text not null,
+  refined_rationale text not null,
+  centroid jsonb not null default '[]'::jsonb,
+  question_count integer not null default 0,
+  avg_votes integer not null default 0,
+  updated_at timestamptz not null default now()
+);
+
+-- Асуултын банк (Question Bank + Vector & Insights)
 create table if not exists questions (
   id uuid primary key default gen_random_uuid(),
   user_id text not null,
@@ -54,10 +72,19 @@ create table if not exists questions (
   question text not null,
   context text,
   votes_count integer not null default 0,
+  embedding jsonb,
+  embedding_model text,
+  cluster_id uuid references question_clusters(id) on delete set null,
+  persona_scores jsonb not null default '[]'::jsonb,
+  ai_analysis text,
+  refined_variant text,
+  related_question_ids jsonb not null default '[]'::jsonb,
+  analyzed_at timestamptz,
   created_at timestamptz not null default now()
 );
 create index if not exists questions_category_idx on questions(category);
 create index if not exists questions_votes_idx on questions(votes_count);
+create index if not exists questions_cluster_idx on questions(cluster_id);
 
 create table if not exists question_votes (
   id uuid primary key default gen_random_uuid(),
@@ -81,6 +108,7 @@ create index if not exists question_comments_question_idx on question_comments(q
 
 -- Row Level Security
 alter table messages enable row level security;
+alter table question_clusters enable row level security;
 alter table questions enable row level security;
 alter table question_votes enable row level security;
 alter table question_comments enable row level security;
@@ -89,6 +117,9 @@ do $$
 begin
   if not exists (select 1 from pg_policies where tablename = 'messages' and policyname = 'messages_all_access') then
     create policy messages_all_access on messages for all using (true) with check (true);
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'question_clusters' and policyname = 'question_clusters_all_access') then
+    create policy question_clusters_all_access on question_clusters for all using (true) with check (true);
   end if;
   if not exists (select 1 from pg_policies where tablename = 'questions' and policyname = 'questions_all_access') then
     create policy questions_all_access on questions for all using (true) with check (true);

@@ -2,49 +2,15 @@ import { NextResponse } from 'next/server';
 import { desc, sql } from 'drizzle-orm';
 import { getDb, schema } from '@/db';
 import { getSessionUser } from '@/lib/api';
-import { DEFAULT_QUESTIONS } from '@/lib/default-questions';
+import { ensureQuestionsSeeded, enrichNewQuestion } from '@/lib/question-agent';
 import { questionInput } from '@/lib/validators';
-
-async function ensureSeeded(db: Awaited<ReturnType<typeof getDb>>) {
-  const existing = await db.select({ count: sql<number>`count(*)::int` }).from(schema.questions);
-  if ((existing[0]?.count ?? 0) > 0) return;
-
-  await db
-    .insert(schema.questions)
-    .values(
-      DEFAULT_QUESTIONS.map((q) => ({
-        id: q.id,
-        userId: 'system',
-        authorName: q.authorName,
-        category: q.category,
-        title: q.title,
-        question: q.question,
-        context: q.context,
-        votesCount: q.votesCount,
-      })),
-    )
-    .onConflictDoNothing();
-
-  const comments = DEFAULT_QUESTIONS.flatMap((q) =>
-    q.initialComments.map((c) => ({
-      id: c.id,
-      questionId: q.id,
-      userId: 'system',
-      authorName: c.authorName,
-      content: c.content,
-    })),
-  );
-  if (comments.length > 0) {
-    await db.insert(schema.questionComments).values(comments).onConflictDoNothing();
-  }
-}
 
 export async function GET(req: Request) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: 'Нэвтрэх шаардлагатай' }, { status: 401 });
 
   const db = await getDb();
-  await ensureSeeded(db);
+  await ensureQuestionsSeeded(db);
 
   const { searchParams } = new URL(req.url);
   const category = searchParams.get('category');
@@ -61,6 +27,13 @@ export async function GET(req: Request) {
       question: schema.questions.question,
       context: schema.questions.context,
       votesCount: schema.questions.votesCount,
+      embeddingModel: schema.questions.embeddingModel,
+      clusterId: schema.questions.clusterId,
+      personaScores: schema.questions.personaScores,
+      aiAnalysis: schema.questions.aiAnalysis,
+      refinedVariant: schema.questions.refinedVariant,
+      relatedQuestionIds: schema.questions.relatedQuestionIds,
+      analyzedAt: schema.questions.analyzedAt,
       createdAt: schema.questions.createdAt,
       commentsCount: sql<number>`(select count(*)::int from question_comments qc where qc.question_id = ${schema.questions.id})`,
       userVoted: sql<boolean>`exists(select 1 from question_votes qv where qv.question_id = ${schema.questions.id} and qv.user_id = ${user.id})`,
@@ -107,6 +80,10 @@ export async function POST(req: Request) {
     }
     return row;
   });
+
+  if (created) {
+    await enrichNewQuestion(db, created);
+  }
 
   return NextResponse.json({ ...created, commentsCount: 0, userVoted: true }, { status: 201 });
 }

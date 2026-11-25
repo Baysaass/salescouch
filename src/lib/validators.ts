@@ -37,6 +37,14 @@ export const questionCommentInput = z.object({
   content: z.string().trim().min(1, 'Сэтгэгдэл хоосон байна').max(2000),
 });
 
+export const questionSynthesizeInput = z.object({
+  clusterId: z.string().uuid().optional().nullable(),
+  questionId: z.string().uuid().optional().nullable(),
+  contactId: z.string().uuid().optional().nullable(),
+  personaName: z.string().trim().max(200).optional().nullable(),
+  goal: z.string().trim().max(500).optional().nullable(),
+});
+
 export function clean(o?: Record<string, string>) {
   return Object.fromEntries(Object.entries(o ?? {}).filter(([, v]) => v && v.trim()).map(([k, v]) => [k, v.trim()]));
 }

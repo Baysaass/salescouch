@@ -1,5 +1,5 @@
 import 'server-only';
-import type { Contact, ContactPersona, Message } from '@/db/schema';
+import type { Contact, ContactPersona, Message, Question } from '@/db/schema';
 import { SKILLS, SKILL_MAP, type SalesSkill } from './skills';
 import { STAGE_LABELS, TEMPERATURE_LABELS, PERSONA_FIELDS, CHANNEL_FIELDS } from './labels';
 import { SKILL_DOCS } from './skill-docs';
@@ -36,10 +36,18 @@ export function contactProfile(c: Contact): string {
   return lines.join('\n');
 }
 
-function systemPrompt(c: Contact, userMessage: string, skill?: SalesSkill): string {
+function systemPrompt(c: Contact, userMessage: string, skill?: SalesSkill, bankQuestions: Question[] = []): string {
   const library = SKILLS.map((s) => `• ${s.id} — ${s.name}: ${s.short}`).join('\n');
   const matched: Product[] = matchProducts(`${contactText(c)} ${userMessage}`, 4);
   const doc = skill ? SKILL_DOCS[skill.id] : undefined;
+  const bankBlock = bankQuestions.length
+    ? `\nАСУУЛТЫН БАНКНААС ЭНЭ ХАРИЛЦАГЧИД ТОХИРОХ ШИЛДЭГ АСУУЛТУУД (хамт олны баталсан):\n${bankQuestions
+        .map(
+          (q) =>
+            `• "${q.title}" (${q.votesCount} vote): ${q.refinedVariant || q.question}${q.aiAnalysis ? `\n  Туршлага/Дүгнэлт: ${q.aiAnalysis}` : ''}`,
+        )
+        .join('\n')}`
+    : '';
 
   return `Чи бол "Практикал Даатгал" ХХК-ийн борлуулалтын ахлах коуч. Борлуулагч (хэрэглэгч) нэг тодорхой харилцагчтай хэрхэн харилцах, ямар аргаар, ямар бүтээгдэхүүн санал болгохыг зөвлөнө. Чи харилцагчтай өөрөө ярихгүй — борлуулагчид зөвлөнө.
 
@@ -70,6 +78,7 @@ ${matched.length ? matched.map(productBrief).join('\n\n') : '(Түлхүүр ү�
 ${library}
 
 ${playbookPromptCompact()}
+${bankBlock}
 
 ХАРИЛЦАГЧИЙН МЭДЭЭЛЭЛ:
 ${contactProfile(c)}
@@ -93,6 +102,7 @@ export async function* streamOpenAI(
   history: Message[],
   userMessage: string,
   skillId?: string | null,
+  bankQuestions: Question[] = [],
 ): AsyncGenerator<string, void, unknown> {
   const skill = skillId ? SKILL_MAP[skillId] : undefined;
   const abortCtrl = new AbortController();
@@ -109,7 +119,7 @@ export async function* streamOpenAI(
         stream: true,
         temperature: 0.6,
         messages: [
-          { role: 'system', content: systemPrompt(c, userMessage, skill) },
+          { role: 'system', content: systemPrompt(c, userMessage, skill, bankQuestions) },
           ...history.slice(-20).map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
           { role: 'user', content: userMessage },
         ],
@@ -152,7 +162,7 @@ export async function* streamOpenAI(
 }
 
 /** OpenAI түлхүүргүй үед ажиллах локал дүрэмд суурилсан коуч */
-export function localCoach(c: Contact, userMessage: string, skillId?: string | null): string {
+export function localCoach(c: Contact, userMessage: string, skillId?: string | null, bankQuestions: Question[] = []): string {
   const text = userMessage.toLowerCase();
   const skill =
     (skillId && SKILL_MAP[skillId]) ||
@@ -245,6 +255,13 @@ export function localCoach(c: Contact, userMessage: string, skillId?: string | n
       '- **Татгалзлын хариу:** «Зөрүүг 12 сард хуваахад сард хэдхэн мянга; харин 3 өдрийн онлайн шийдвэр таны ажлын өдрийг хэмнэнэ.»',
       '- **Follow-up:** Яриа дууссанаас хойш 15 минутад 1 хуудас харьцуулалт + 1-click төлбөрийн линк илгээнэ.',
     );
+  }
+
+  if (bankQuestions.length > 0) {
+    parts.push('', '### Асуултын банкнаас энэ харилцагчид тохирох шилдэг асуултууд');
+    for (const q of bankQuestions) {
+      parts.push(`- **${q.title}** (${q.votesCount} vote): ${q.refinedVariant || q.question}${q.aiAnalysis ? `\n  *AI Дүгнэлт:* ${q.aiAnalysis}` : ''}`);
+    }
   }
 
   parts.push('', `**Дараагийн алхам:** ${skill.prompt}`);

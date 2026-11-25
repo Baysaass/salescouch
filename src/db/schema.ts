@@ -72,6 +72,29 @@ export const messages = pgTable(
 export type Contact = typeof contacts.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 
+export interface PersonaMatch {
+  personaId: string;
+  personaName: string;
+  score: number; // 0-100
+  reason: string;
+}
+
+export const questionClusters = pgTable('question_clusters', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: text('name').notNull(),
+  summary: text('summary').notNull(),
+  performanceVerdict: text('performance_verdict').notNull(),
+  bestPersonas: jsonb('best_personas').$type<PersonaMatch[]>().notNull().default([]),
+  nextClusterId: uuid('next_cluster_id'),
+  nextClusterReason: text('next_cluster_reason'),
+  refinedQuestion: text('refined_question').notNull(),
+  refinedRationale: text('refined_rationale').notNull(),
+  centroid: jsonb('centroid').$type<number[]>().notNull().default([]),
+  questionCount: integer('question_count').notNull().default(0),
+  avgVotes: integer('avg_votes').notNull().default(0),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const questions = pgTable(
   'questions',
   {
@@ -79,14 +102,26 @@ export const questions = pgTable(
     userId: text('user_id').notNull(),
     authorName: text('author_name').notNull(),
     authorImage: text('author_image'),
-    category: text('category').notNull(), // 'discovery' | 'spin' | 'bant' | 'objection' | 'closing' | 'cold' | 'renewal' | 'referral'
+    category: text('category').notNull(), // 'discovery' | 'spin' | 'bant' | 'objection' | 'closing' | 'digital' | 'renewal'
     title: text('title').notNull(),
     question: text('question').notNull(),
     context: text('context'),
     votesCount: integer('votes_count').notNull().default(0),
+    embedding: jsonb('embedding').$type<number[] | null>(),
+    embeddingModel: text('embedding_model'),
+    clusterId: uuid('cluster_id'),
+    personaScores: jsonb('persona_scores').$type<PersonaMatch[]>().notNull().default([]),
+    aiAnalysis: text('ai_analysis'),
+    refinedVariant: text('refined_variant'),
+    relatedQuestionIds: jsonb('related_question_ids').$type<string[]>().notNull().default([]),
+    analyzedAt: timestamp('analyzed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [index('questions_category_idx').on(t.category), index('questions_votes_idx').on(t.votesCount)],
+  (t) => [
+    index('questions_category_idx').on(t.category),
+    index('questions_votes_idx').on(t.votesCount),
+    index('questions_cluster_idx').on(t.clusterId),
+  ],
 );
 
 export const questionVotes = pgTable(
@@ -118,5 +153,6 @@ export const questionComments = pgTable(
 );
 
 export type Question = typeof questions.$inferSelect;
+export type QuestionCluster = typeof questionClusters.$inferSelect;
 export type QuestionVote = typeof questionVotes.$inferSelect;
 export type QuestionComment = typeof questionComments.$inferSelect;

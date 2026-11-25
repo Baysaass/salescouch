@@ -1,4 +1,4 @@
-import type { ContactChannels, ContactPersona } from '@/db/schema';
+import type { ContactChannels, ContactPersona, PersonaMatch } from '@/db/schema';
 
 export interface ContactDTO {
   id: string;
@@ -41,6 +41,40 @@ export interface QuestionDTO {
   createdAt: string;
   commentsCount: number;
   userVoted: boolean;
+  embeddingModel?: string | null;
+  clusterId?: string | null;
+  personaScores?: PersonaMatch[];
+  aiAnalysis?: string | null;
+  refinedVariant?: string | null;
+  relatedQuestionIds?: string[];
+  analyzedAt?: string | null;
+}
+
+export interface QuestionClusterDTO {
+  id: string;
+  name: string;
+  summary: string;
+  performanceVerdict: string;
+  bestPersonas: PersonaMatch[];
+  nextClusterId: string | null;
+  nextClusterReason: string | null;
+  refinedQuestion: string;
+  refinedRationale: string;
+  questionCount: number;
+  avgVotes: number;
+  updatedAt: string;
+}
+
+export interface SynthesizedQuestionDTO {
+  title: string;
+  category: 'discovery' | 'spin' | 'bant' | 'objection' | 'closing' | 'digital' | 'renewal';
+  question: string;
+  context: string;
+  rationale: string;
+  followUpQuestion: string;
+  predictedObjection: string;
+  targetPersonaName: string;
+  modelUsed: string;
 }
 
 export interface QuestionCommentDTO {
