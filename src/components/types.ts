@@ -27,3 +27,28 @@ export interface MessageDTO {
   createdAt: string;
   pending?: boolean;
 }
+
+export interface QuestionDTO {
+  id: string;
+  userId: string;
+  authorName: string;
+  authorImage: string | null;
+  category: string;
+  title: string;
+  question: string;
+  context: string | null;
+  votesCount: number;
+  createdAt: string;
+  commentsCount: number;
+  userVoted: boolean;
+}
+
+export interface QuestionCommentDTO {
+  id: string;
+  questionId: string;
+  userId: string;
+  authorName: string;
+  authorImage: string | null;
+  content: string;
+  createdAt: string;
+}

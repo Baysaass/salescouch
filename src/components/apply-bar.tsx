@@ -9,11 +9,13 @@ export function ApplyBar({
   contacts,
   defaultContactId,
   label,
+  buttonText,
   onApply,
 }: {
   contacts: ContactDTO[];
   defaultContactId: string | null;
   label: string;
+  buttonText?: string;
   onApply: (contactId: string) => void;
 }) {
   const [cid, setCid] = useState(defaultContactId ?? contacts[0]?.id ?? '');
@@ -34,7 +36,7 @@ export function ApplyBar({
         onClick={() => cid && onApply(cid)}
         className="inline-flex h-10 items-center gap-2 rounded-lg bg-brand px-4 text-sm font-medium text-white hover:bg-brand-600"
       >
-        <Play className="h-4 w-4" /> {label}
+        <Play className="h-4 w-4" /> {buttonText ?? label}
       </button>
     </div>
   );

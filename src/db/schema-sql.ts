@@ -44,4 +44,40 @@ create table if not exists messages (
 create index if not exists messages_contact_idx on messages(contact_id);
 create index if not exists messages_user_idx on messages(user_id);
 create index if not exists messages_created_at_idx on messages(created_at);
+
+-- Асуултын банк (Question Bank)
+create table if not exists questions (
+  id uuid primary key default gen_random_uuid(),
+  user_id text not null,
+  author_name text not null,
+  author_image text,
+  category text not null,
+  title text not null,
+  question text not null,
+  context text,
+  votes_count integer not null default 0,
+  created_at timestamptz not null default now()
+);
+create index if not exists questions_category_idx on questions(category);
+create index if not exists questions_votes_idx on questions(votes_count);
+
+create table if not exists question_votes (
+  id uuid primary key default gen_random_uuid(),
+  question_id uuid not null references questions(id) on delete cascade,
+  user_id text not null,
+  created_at timestamptz not null default now()
+);
+create unique index if not exists question_votes_uniq_idx on question_votes(question_id, user_id);
+create index if not exists question_votes_question_idx on question_votes(question_id);
+
+create table if not exists question_comments (
+  id uuid primary key default gen_random_uuid(),
+  question_id uuid not null references questions(id) on delete cascade,
+  user_id text not null,
+  author_name text not null,
+  author_image text,
+  content text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists question_comments_question_idx on question_comments(question_id);
 `;

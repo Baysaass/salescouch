@@ -11,6 +11,18 @@ export async function requireUser(): Promise<string | NextResponse> {
   return id;
 }
 
+export async function getSessionUser() {
+  const session = await auth();
+  const id = session?.user?.id || session?.user?.email?.toLowerCase();
+  if (!id) return null;
+  return {
+    id,
+    name: session?.user?.name || session?.user?.email?.split('@')[0] || 'Борлуулагч',
+    image: session?.user?.image || null,
+    email: session?.user?.email || '',
+  };
+}
+
 export async function findContact(userId: string, contactId: string) {
   if (!/^[0-9a-f-]{36}$/i.test(contactId)) return null;
   const db = await getDb();

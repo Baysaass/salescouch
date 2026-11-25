@@ -1,4 +1,4 @@
-import { jsonb, pgTable, text, timestamp, uuid, index } from 'drizzle-orm/pg-core';
+import { integer, jsonb, pgTable, text, timestamp, uuid, index, uniqueIndex } from 'drizzle-orm/pg-core';
 
 export interface ContactChannels {
   facebook?: string;
@@ -71,3 +71,52 @@ export const messages = pgTable(
 
 export type Contact = typeof contacts.$inferSelect;
 export type Message = typeof messages.$inferSelect;
+
+export const questions = pgTable(
+  'questions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: text('user_id').notNull(),
+    authorName: text('author_name').notNull(),
+    authorImage: text('author_image'),
+    category: text('category').notNull(), // 'discovery' | 'spin' | 'bant' | 'objection' | 'closing' | 'cold' | 'renewal' | 'referral'
+    title: text('title').notNull(),
+    question: text('question').notNull(),
+    context: text('context'),
+    votesCount: integer('votes_count').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('questions_category_idx').on(t.category), index('questions_votes_idx').on(t.votesCount)],
+);
+
+export const questionVotes = pgTable(
+  'question_votes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    questionId: uuid('question_id').notNull(),
+    userId: text('user_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('question_votes_uniq_idx').on(t.questionId, t.userId),
+    index('question_votes_question_idx').on(t.questionId),
+  ],
+);
+
+export const questionComments = pgTable(
+  'question_comments',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    questionId: uuid('question_id').notNull(),
+    userId: text('user_id').notNull(),
+    authorName: text('author_name').notNull(),
+    authorImage: text('author_image'),
+    content: text('content').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('question_comments_question_idx').on(t.questionId)],
+);
+
+export type Question = typeof questions.$inferSelect;
+export type QuestionVote = typeof questionVotes.$inferSelect;
+export type QuestionComment = typeof questionComments.$inferSelect;

@@ -9,6 +9,8 @@ import { ContactFormModal } from './contact-form';
 import { DocsView } from './docs-view';
 import { ProductsView } from './products-view';
 import { PlaybookView } from './playbook-view';
+import { OnboardingView } from './onboarding-view';
+import { QuestionsView } from './questions-view';
 import type { ContactDTO, MessageDTO } from './types';
 import { SKILLS, SKILL_MAP } from '@/lib/skills';
 import { PRODUCTS, PRODUCT_MAP } from '@/lib/products';
@@ -197,10 +199,39 @@ export function Workspace({ user, aiEnabled, dbMode }: Props) {
         }}
         query={query}
         onQuery={setQuery}
-        counts={{ contacts: contacts.length, playbook: 3, docs: SKILLS.length, products: PRODUCTS.length }}
+        counts={{
+          contacts: contacts.length,
+          playbook: 3,
+          onboarding: 7,
+          questions: 8,
+          docs: SKILLS.length,
+          products: PRODUCTS.length,
+        }}
       />
 
       <div className="flex min-w-0 flex-1 overflow-hidden rounded-2xl border border-line bg-panel">
+        {view === 'onboarding' && (
+          <OnboardingView
+            contacts={contacts}
+            selectedContactId={selectedId}
+            onApply={(cid, text) => applyToContact(cid, text, null)}
+            onNavigateToQuestions={() => {
+              setView('questions');
+              setQuery('');
+            }}
+          />
+        )}
+
+        {view === 'questions' && (
+          <QuestionsView
+            query={query}
+            contacts={contacts}
+            selectedContactId={selectedId}
+            onApply={(cid, text) => applyToContact(cid, text, null)}
+            currentUser={user}
+          />
+        )}
+
         {view === 'playbook' && (
           <PlaybookView
             query={query}

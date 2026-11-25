@@ -1,15 +1,29 @@
 'use client';
 
-import { BookMarked, BookOpen, Database, LogOut, MessagesSquare, PenLine, Search, ShieldCheck, X } from 'lucide-react';
+import {
+  BookMarked,
+  BookOpen,
+  Database,
+  GraduationCap,
+  LogOut,
+  MessagesSquare,
+  MessageSquareShare,
+  PenLine,
+  Search,
+  ShieldCheck,
+  X,
+} from 'lucide-react';
 import { signOutAction } from '@/app/actions';
 import { Avatar } from './ui';
 import { clsx } from './clsx';
 
-export type View = 'chat' | 'playbook' | 'docs' | 'products';
+export type View = 'chat' | 'playbook' | 'onboarding' | 'questions' | 'docs' | 'products';
 
 const NAV: { id: View; label: string; icon: React.ComponentType<{ className?: string }>; hint: string }[] = [
   { id: 'chat', label: 'Харилцагчид', icon: MessagesSquare, hint: 'Харилцагч + коуч чат' },
   { id: 'playbook', label: 'Playbook', icon: BookMarked, hint: 'Миний Sales Playbook v2.0' },
+  { id: 'onboarding', label: 'Onboarding', icon: GraduationCap, hint: 'Борлуулалтын шинэ ажилтны хөтөч' },
+  { id: 'questions', label: 'Асуултын банк', icon: MessageSquareShare, hint: 'Шилдэг асуултууд, vote & туршлага' },
   { id: 'docs', label: 'Docs', icon: BookOpen, hint: 'Борлуулалтын аргачлал, ажлын урсгал' },
   { id: 'products', label: 'Бүтээгдэхүүн', icon: ShieldCheck, hint: 'Practical-ийн даатгалууд' },
 ];
@@ -22,13 +36,15 @@ interface Props {
   onView: (v: View) => void;
   query: string;
   onQuery: (q: string) => void;
-  counts: { contacts: number; docs: number; products: number; playbook?: number };
+  counts: { contacts: number; docs: number; products: number; playbook?: number; onboarding?: number; questions?: number };
 }
 
 export function Sidebar({ user, aiEnabled, dbMode, view, onView, query, onQuery, counts }: Props) {
   const countFor: Record<View, number> = {
     chat: counts.contacts,
     playbook: counts.playbook ?? 3,
+    onboarding: counts.onboarding ?? 7,
+    questions: counts.questions ?? 8,
     docs: counts.docs,
     products: counts.products,
   };
@@ -37,9 +53,13 @@ export function Sidebar({ user, aiEnabled, dbMode, view, onView, query, onQuery,
       ? 'Харилцагч хайх…'
       : view === 'playbook'
         ? 'Playbook-оос хайх…'
-        : view === 'docs'
-          ? 'Арга хайх…'
-          : 'Бүтээгдэхүүн хайх…';
+        : view === 'onboarding'
+          ? 'Хөтөчөөс хайх…'
+          : view === 'questions'
+            ? 'Асуулт, туршлагаас хайх…'
+            : view === 'docs'
+              ? 'Арга хайх…'
+              : 'Бүтээгдэхүүн хайх…';
 
   return (
     <aside className="flex w-[240px] shrink-0 flex-col">
