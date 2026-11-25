@@ -18,11 +18,16 @@ import { PRODUCTS, PRODUCT_MAP } from '@/lib/products';
 import type { UserPlan } from '@/lib/api';
 
 interface Props {
-  user: { id?: string; name: string; email: string; image: string | null; plan: UserPlan };
+  user: { id?: string; name: string; email: string; image: string | null; plan: UserPlan; followedTags?: string[] };
   aiEnabled: boolean;
 }
 
 export function Workspace({ user, aiEnabled }: Props) {
+  const [userState, setUserState] = useState(user);
+  useEffect(() => {
+    setUserState(user);
+  }, [user]);
+
   const [contacts, setContacts] = useState<ContactDTO[]>([]);
   const [loadingContacts, setLoadingContacts] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -205,7 +210,8 @@ export function Workspace({ user, aiEnabled }: Props) {
   return (
     <div className="flex h-dvh gap-3 p-3">
       <Sidebar
-        user={user}
+        user={userState}
+        onUserUpdated={(patch) => setUserState((prev) => ({ ...prev, ...patch }))}
         aiEnabled={aiEnabled}
         view={view}
         onView={(v) => {
@@ -245,7 +251,8 @@ export function Workspace({ user, aiEnabled }: Props) {
             selectedContactId={selectedId}
             onApply={(cid, text) => applyToContact(cid, text, null)}
             onCountChange={setQuestionsCount}
-            currentUser={user}
+            currentUser={userState}
+            onFollowedTagsChange={(followedTags) => setUserState((prev) => ({ ...prev, followedTags }))}
           />
         )}
 

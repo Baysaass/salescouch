@@ -22,6 +22,7 @@ export const messageInput = z.object({
   role: z.enum(['user', 'assistant']).optional().default('user'),
   content: z.string().trim().min(1).max(32000),
   skill: z.string().max(64).optional().nullable(),
+  mode: z.enum(['prep', 'live']).optional().default('prep'),
 });
 
 export const QUESTION_CATEGORIES = ['discovery', 'spin', 'bant', 'objection', 'closing', 'digital', 'renewal', 'general'] as const;
@@ -36,6 +37,14 @@ export const questionInput = z.object({
 
 export const voteInput = z.object({
   type: z.enum(['like', 'unlike']).optional().default('like'),
+});
+
+export const couponRedeemInput = z.object({
+  code: z.string().trim().min(4, 'Coupon код оруулна уу').max(64),
+});
+
+export const toggleFollowTagInput = z.object({
+  tag: z.string().trim().min(2, 'Таг хэт богино байна').max(45),
 });
 
 export const questionCommentInput = z.object({

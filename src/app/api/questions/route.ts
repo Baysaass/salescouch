@@ -18,6 +18,7 @@ export async function GET(req: Request) {
     tag,
     sort,
     includeInsights: user.plan === 'pro',
+    followedTags: user.followedTags,
   });
 
   return NextResponse.json(items);

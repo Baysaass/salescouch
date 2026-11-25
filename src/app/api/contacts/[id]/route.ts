@@ -6,6 +6,15 @@ import { clean, contactPatch } from '@/lib/validators';
 
 type Ctx = { params: Promise<{ id: string }> };
 
+export async function GET(_req: Request, { params }: Ctx) {
+  const userId = await requireUser();
+  if (typeof userId !== 'string') return userId;
+  const { id } = await params;
+  const existing = await findContact(userId, id);
+  if (!existing) return NextResponse.json({ error: 'Олдсонгүй' }, { status: 404 });
+  return NextResponse.json(existing);
+}
+
 export async function PATCH(req: Request, { params }: Ctx) {
   const userId = await requireUser();
   if (typeof userId !== 'string') return userId;

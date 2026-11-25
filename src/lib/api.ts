@@ -28,13 +28,18 @@ export async function getSessionUser() {
   if (!id) return null;
 
   let plan: UserPlan = isProByEnv(session?.user?.email || id) ? 'pro' : 'free';
-  if (plan === 'free') {
-    try {
-      const db = await getDb();
-      const [row] = await db.select({ plan: schema.users.plan }).from(schema.users).where(eq(schema.users.id, id)).limit(1);
-      if (row?.plan === 'pro') plan = 'pro';
-    } catch {}
-  }
+  let followedTags: string[] = [];
+
+  try {
+    const db = await getDb();
+    const [row] = await db
+      .select({ plan: schema.users.plan, followedTags: schema.users.followedTags })
+      .from(schema.users)
+      .where(eq(schema.users.id, id))
+      .limit(1);
+    if (row?.plan === 'pro') plan = 'pro';
+    if (Array.isArray(row?.followedTags)) followedTags = row.followedTags.slice(0, 5);
+  } catch {}
 
   return {
     id,
@@ -42,6 +47,7 @@ export async function getSessionUser() {
     image: session?.user?.image || null,
     email: session?.user?.email || '',
     plan,
+    followedTags,
   };
 }
 

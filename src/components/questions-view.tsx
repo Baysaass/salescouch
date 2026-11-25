@@ -12,6 +12,7 @@ import {
   MessageCircle,
   Plus,
   RefreshCw,
+  Search,
   Send,
   Sparkles,
   ThumbsDown,
@@ -33,7 +34,15 @@ interface Props {
   selectedContactId: string | null;
   onApply: (contactId: string, text: string) => void;
   onCountChange?: (count: number) => void;
-  currentUser: { id?: string; name: string; email: string; image: string | null; plan: UserPlan };
+  currentUser: {
+    id?: string;
+    name: string;
+    email: string;
+    image: string | null;
+    plan: UserPlan;
+    followedTags?: string[];
+  };
+  onFollowedTagsChange?: (tags: string[]) => void;
 }
 
 type BankTab = 'feed' | 'clusters' | 'synthesizer';
@@ -56,7 +65,17 @@ function formatShortTime(iso: string): string {
   return d.toLocaleDateString('mn-MN', { month: 'short', day: 'numeric' });
 }
 
-export function QuestionsView({ query, contacts, selectedContactId, onApply, onCountChange, currentUser }: Props) {
+const MAX_FOLLOWED_TAGS = 5;
+
+export function QuestionsView({
+  query,
+  contacts,
+  selectedContactId,
+  onApply,
+  onCountChange,
+  currentUser,
+  onFollowedTagsChange,
+}: Props) {
   const isPro = currentUser.plan === 'pro';
   const [subTab, setSubTab] = useState<BankTab>('feed');
   const [questions, setQuestions] = useState<QuestionDTO[]>([]);
@@ -67,6 +86,11 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, onC
   const [banner, setBanner] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const [activeTag, setActiveTag] = useState<string>('all');
+  const [followedTags, setFollowedTags] = useState<string[]>(currentUser.followedTags ?? []);
+  const [availableTags, setAvailableTags] = useState<{ tag: string; count: number }[]>([]);
+  const [tagPickerOpen, setTagPickerOpen] = useState(false);
+  const [tagPickerSearch, setTagPickerSearch] = useState('');
+  const [togglingTag, setTogglingTag] = useState<string | null>(null);
   const [sort, setSort] = useState<'votes' | 'newest'>('newest');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [highlightedClusterId, setHighlightedClusterId] = useState<string | null>(null);
@@ -102,10 +126,70 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, onC
   const currentUserId = currentUser.id || currentUser.email.toLowerCase();
 
   useEffect(() => {
+    if (Array.isArray(currentUser.followedTags)) {
+      setFollowedTags(currentUser.followedTags);
+    }
+  }, [currentUser.followedTags]);
+
+  useEffect(() => {
     if (!synthContactId && (selectedContactId || contacts[0]?.id)) {
       setSynthContactId(selectedContactId || contacts[0]?.id || '');
     }
   }, [contacts, selectedContactId, synthContactId]);
+
+  const fetchAvailableTags = useCallback(async () => {
+    try {
+      const r = await fetch('/api/profile/tags');
+      if (!r.ok) return;
+      const data: { followedTags?: string[]; availableTags?: { tag: string; count: number }[] } = await r.json();
+      if (Array.isArray(data.followedTags)) {
+        setFollowedTags(data.followedTags);
+        onFollowedTagsChange?.(data.followedTags);
+      }
+      if (Array.isArray(data.availableTags)) {
+        setAvailableTags(data.availableTags);
+      }
+    } catch {}
+  }, [onFollowedTagsChange]);
+
+  useEffect(() => {
+    void fetchAvailableTags();
+  }, [fetchAvailableTags]);
+
+  const handleToggleFollowTag = async (rawTag: string) => {
+    const clean = extractHashtags('', [rawTag])[0];
+    if (!clean || togglingTag) return;
+
+    const currentlyFollowed = followedTags.includes(clean);
+    if (!currentlyFollowed && followedTags.length >= MAX_FOLLOWED_TAGS) {
+      setApiError(`Хамгийн ихдээ ${MAX_FOLLOWED_TAGS} хаштаг дагах боломжтой. Өөр тагийг болиулаад дахин оролдоно уу.`);
+      return;
+    }
+
+    setApiError(null);
+    setTogglingTag(clean);
+    try {
+      const res = await fetch('/api/profile/tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tag: clean }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || 'Хаштаг дагахад алдаа гарлаа');
+      }
+      const nextTags: string[] = Array.isArray(data?.followedTags) ? data.followedTags : [];
+      setFollowedTags(nextTags);
+      onFollowedTagsChange?.(nextTags);
+      if (activeTag === 'following') {
+        void fetchQuestions();
+      }
+    } catch (err) {
+      setApiError((err as Error).message);
+    } finally {
+      setTogglingTag(null);
+    }
+  };
 
   const fetchQuestions = useCallback(async () => {
     setLoading(true);
@@ -434,7 +518,8 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, onC
       setSelectedTags([]);
       setCustomTagInput('');
       setComposerOpen(false);
-      await fetchQuestions();
+      if (activeTag === 'following') setActiveTag('all');
+      await Promise.all([fetchQuestions(), fetchAvailableTags()]);
     } catch (err) {
       setApiError((err as Error).message);
     } finally {
@@ -456,22 +541,38 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, onC
     void handleSynthesize(undefined, opts);
   };
 
-  // Бүх нийтлэлүүдээс үүссэн #таг-уудын жагсаалт
-  const allTagList = useMemo(() => {
+  // Таг дагах сонгогчид харуулах хаштагууд (API + одоогийн feed + санал болгох)
+  const pickerTagList = useMemo(() => {
     const counts = new Map<string, number>();
+    for (const item of availableTags) {
+      counts.set(item.tag, item.count);
+    }
     for (const q of questions) {
       for (const t of q.tags || []) {
-        counts.set(t, (counts.get(t) ?? 0) + 1);
+        if (!counts.has(t)) counts.set(t, 1);
       }
     }
     for (const s of SUGGESTED_HASHTAGS) {
       if (!counts.has(s.tag)) counts.set(s.tag, 0);
     }
+    for (const f of followedTags) {
+      if (!counts.has(f)) counts.set(f, 0);
+    }
+    const q = tagPickerSearch.trim().replace(/^#+/, '').toLowerCase();
     return Array.from(counts.entries())
-      .filter(([, c]) => c > 0 || activeTag !== 'all')
-      .sort((a, b) => b[1] - a[1])
-      .map(([tag]) => tag);
-  }, [questions, activeTag]);
+      .map(([tag, count]) => ({ tag, count }))
+      .filter((item) => !q || item.tag.includes(q))
+      .sort((a, b) => {
+        const af = followedTags.includes(a.tag) ? 1 : 0;
+        const bf = followedTags.includes(b.tag) ? 1 : 0;
+        if (af !== bf) return bf - af;
+        return b.count - a.count || a.tag.localeCompare(b.tag);
+      });
+  }, [availableTags, questions, followedTags, tagPickerSearch]);
+
+  const cleanPickerQuery = useMemo(() => extractHashtags('', [tagPickerSearch])[0] || '', [tagPickerSearch]);
+  const showCustomFollowOption =
+    cleanPickerQuery.length >= 2 && !pickerTagList.some((item) => item.tag === cleanPickerQuery);
 
   const clusterById = useMemo(() => new Map(clusters.map((c) => [c.id, c])), [clusters]);
 
@@ -586,33 +687,218 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, onC
           </div>
         )}
 
-        {/* Hashtag Strip */}
+        {/* Follow Hashtags Strip (Max 5) */}
         {subTab === 'feed' && (
-          <div className="mx-auto mt-3 flex max-w-[680px] gap-1.5 overflow-x-auto pb-0.5">
-            <button
-              onClick={() => setActiveTag('all')}
-              className={clsx(
-                'whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium transition-colors',
-                activeTag === 'all' ? 'bg-ink text-white' : 'border border-line bg-white text-ink-2 hover:text-ink',
-              )}
-            >
-              Бүгд
-            </button>
-            {allTagList.map((tag) => {
-              const active = activeTag === tag;
-              return (
-                <button
-                  key={tag}
-                  onClick={() => setActiveTag(active ? 'all' : tag)}
+          <div className="relative mx-auto mt-3 max-w-[680px]">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                onClick={() => setActiveTag('all')}
+                className={clsx(
+                  'whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium transition-colors',
+                  activeTag === 'all' ? 'bg-ink text-white' : 'border border-line bg-white text-ink-2 hover:text-ink',
+                )}
+              >
+                Бүгд
+              </button>
+
+              <button
+                onClick={() => setActiveTag(activeTag === 'following' ? 'all' : 'following')}
+                className={clsx(
+                  'inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                  activeTag === 'following'
+                    ? 'border-brand bg-brand text-white'
+                    : 'border-line bg-white text-ink-2 hover:border-brand hover:text-ink',
+                )}
+              >
+                <span>Миний дагасан</span>
+                <span
                   className={clsx(
-                    'whitespace-nowrap rounded-full border px-3 py-1 text-xs font-medium transition-all',
-                    active ? 'border-brand bg-brand text-white' : tagBadgeColor(tag),
+                    'tabular-nums text-[10.5px]',
+                    activeTag === 'following' ? 'text-white/90' : 'text-ink-3',
                   )}
                 >
-                  #{tag}
-                </button>
-              );
-            })}
+                  {followedTags.length}/{MAX_FOLLOWED_TAGS}
+                </span>
+              </button>
+
+              {followedTags.map((tag) => {
+                const active = activeTag === tag;
+                return (
+                  <button
+                    key={tag}
+                    onClick={() => setActiveTag(active ? 'all' : tag)}
+                    className={clsx(
+                      'whitespace-nowrap rounded-full border px-3 py-1 text-xs font-medium transition-all',
+                      active ? 'border-brand bg-brand text-white' : tagBadgeColor(tag),
+                    )}
+                  >
+                    #{tag}
+                  </button>
+                );
+              })}
+
+              {activeTag !== 'all' && activeTag !== 'following' && !followedTags.includes(activeTag) && (
+                <div className="inline-flex items-center gap-1 rounded-full border border-brand bg-brand-soft/70 py-0.5 pl-2.5 pr-1 text-xs">
+                  <span className="font-semibold text-brand">#{activeTag}</span>
+                  <button
+                    type="button"
+                    disabled={togglingTag === activeTag}
+                    onClick={() => void handleToggleFollowTag(activeTag)}
+                    className="rounded-full bg-brand px-2 py-0.5 text-[10.5px] font-semibold text-white hover:bg-brand-600 disabled:opacity-50"
+                  >
+                    {togglingTag === activeTag ? '...' : '+ Дагах'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTag('all')}
+                    aria-label="Шүүлт арилгах"
+                    className="rounded-full p-0.5 text-ink-2 hover:bg-white hover:text-ink"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !tagPickerOpen;
+                  setTagPickerOpen(next);
+                  if (next) void fetchAvailableTags();
+                }}
+                className={clsx(
+                  'inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-dashed px-3 py-1 text-xs font-medium transition-colors',
+                  tagPickerOpen
+                    ? 'border-brand bg-brand-soft text-brand'
+                    : 'border-line bg-white text-ink-2 hover:border-brand hover:text-brand',
+                )}
+              >
+                <Hash className="h-3 w-3" />
+                <span>Таг дагах</span>
+                <span className="tabular-nums text-[10.5px] opacity-80">
+                  ({followedTags.length}/{MAX_FOLLOWED_TAGS})
+                </span>
+              </button>
+            </div>
+
+            {tagPickerOpen && (
+              <div className="mt-2.5 rounded-2xl border border-line bg-white p-3.5 shadow-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-semibold text-ink">
+                      Сонирхдог сэдвээ дагах{' '}
+                      <span className="tabular-nums text-brand">
+                        ({followedTags.length}/{MAX_FOLLOWED_TAGS})
+                      </span>
+                    </p>
+                    <p className="text-[11px] text-ink-3">
+                      Хамгийн ихдээ {MAX_FOLLOWED_TAGS} хаштаг дагаж, зөвхөн хэрэгтэй асуултуудаа шүүж харна уу.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setTagPickerOpen(false)}
+                    aria-label="Хаах"
+                    className="rounded-lg p-1 text-ink-3 hover:bg-hover hover:text-ink"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="mt-2.5 flex items-center gap-2 rounded-lg border border-line bg-canvas/40 px-2.5 py-1.5 focus-within:border-brand focus-within:bg-white">
+                  <Search className="h-3.5 w-3.5 text-ink-3" />
+                  <input
+                    type="text"
+                    value={tagPickerSearch}
+                    onChange={(e) => setTagPickerSearch(e.target.value)}
+                    placeholder="#хаштаг хайх эсвэл шинээр бичих..."
+                    className="min-w-0 flex-1 bg-transparent text-xs text-ink outline-none placeholder:text-ink-3"
+                  />
+                  {tagPickerSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setTagPickerSearch('')}
+                      className="text-ink-3 hover:text-ink"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {followedTags.length > 0 && (
+                  <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-b border-line/70 pb-2.5">
+                    <span className="text-[11px] font-medium text-ink-2">Дагасан:</span>
+                    {followedTags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="inline-flex items-center gap-1 rounded-full border border-brand/30 bg-brand-soft/60 px-2.5 py-0.5 text-[11px] font-medium text-brand"
+                      >
+                        #{tag}
+                        <button
+                          type="button"
+                          disabled={togglingTag === tag}
+                          onClick={() => void handleToggleFollowTag(tag)}
+                          aria-label={`${tag} болиулах`}
+                          className="rounded-full p-0.5 hover:bg-white"
+                        >
+                          <X className="h-2.5 w-2.5" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="mt-2.5 flex max-h-48 flex-wrap gap-1.5 overflow-y-auto pr-1">
+                  {showCustomFollowOption && (
+                    <button
+                      type="button"
+                      disabled={togglingTag === cleanPickerQuery}
+                      onClick={() => {
+                        void handleToggleFollowTag(cleanPickerQuery);
+                        setTagPickerSearch('');
+                      }}
+                      className="inline-flex items-center gap-1 rounded-full border border-dashed border-brand bg-brand-soft/50 px-2.5 py-1 text-[11px] font-semibold text-brand hover:bg-brand-soft"
+                    >
+                      <Plus className="h-3 w-3" />#{cleanPickerQuery} дагах
+                    </button>
+                  )}
+
+                  {pickerTagList.map(({ tag, count }) => {
+                    const isFollowed = followedTags.includes(tag);
+                    const atLimit = !isFollowed && followedTags.length >= MAX_FOLLOWED_TAGS;
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        disabled={togglingTag === tag}
+                        onClick={() => void handleToggleFollowTag(tag)}
+                        title={atLimit ? `Хамгийн ихдээ ${MAX_FOLLOWED_TAGS} таг дагах боломжтой` : undefined}
+                        className={clsx(
+                          'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
+                          isFollowed
+                            ? 'border-brand bg-brand text-white'
+                            : atLimit
+                              ? 'border-line bg-canvas/50 text-ink-3 hover:border-rose-300'
+                              : 'border-line bg-white text-ink-2 hover:border-brand hover:text-ink',
+                        )}
+                      >
+                        {isFollowed ? <Check className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+                        <span>#{tag}</span>
+                        {count > 0 && (
+                          <span className={clsx('tabular-nums text-[10px]', isFollowed ? 'text-white/80' : 'text-ink-3')}>
+                            {count}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+
+                  {pickerTagList.length === 0 && !showCustomFollowOption && (
+                    <p className="py-2 text-xs text-ink-3">Тохирох хаштаг олдсонгүй.</p>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -787,8 +1073,26 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, onC
               </div>
             ) : filteredQuestions.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-line bg-white p-10 text-center">
-                <p className="text-sm font-semibold text-ink">Энэ сэдвээр асуулт алга байна</p>
-                <p className="mt-1 text-xs text-ink-2">Та эхний асуултаа бичээд #таг нэмж хуваалцаарай.</p>
+                {activeTag === 'following' && followedTags.length === 0 ? (
+                  <>
+                    <p className="text-sm font-semibold text-ink">Та одоогоор хаштаг дагаагүй байна</p>
+                    <p className="mt-1 text-xs text-ink-2">
+                      Сонирхдог сэдвүүдээсээ хамгийн ихдээ {MAX_FOLLOWED_TAGS} хаштаг дагаад зөвхөн хэрэгтэй асуултуудаа хараарай.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setTagPickerOpen(true)}
+                      className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-brand px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-600"
+                    >
+                      <Hash className="h-3.5 w-3.5" /> Таг дагах
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm font-semibold text-ink">Энэ сэдвээр асуулт алга байна</p>
+                    <p className="mt-1 text-xs text-ink-2">Та эхний асуултаа бичээд #таг нэмж хуваалцаарай.</p>
+                  </>
+                )}
               </div>
             ) : (
               <div className="overflow-hidden rounded-2xl border border-line bg-white divide-y divide-line">

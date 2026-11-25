@@ -31,6 +31,8 @@ export const users = pgTable('users', {
   name: text('name'),
   image: text('image'),
   plan: text('plan').notNull().default('free'), // 'free' | 'pro'
+  followedTags: jsonb('followed_tags').$type<string[]>().notNull().default([]),
+  redeemedCoupon: text('redeemed_coupon'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 

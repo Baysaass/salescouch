@@ -9,9 +9,13 @@ create table if not exists users (
   name text,
   image text,
   plan text not null default 'free',
+  followed_tags jsonb not null default '[]'::jsonb,
+  redeemed_coupon text,
   created_at timestamptz not null default now()
 );
 alter table users add column if not exists plan text not null default 'free';
+alter table users add column if not exists followed_tags jsonb not null default '[]'::jsonb;
+alter table users add column if not exists redeemed_coupon text;
 
 create table if not exists contacts (
   id uuid primary key default gen_random_uuid(),

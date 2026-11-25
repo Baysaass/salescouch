@@ -824,7 +824,7 @@ export interface VoterInfo {
 export async function fetchQuestionsFeed(
   db: DB,
   userId: string,
-  opts: { tag?: string | null; sort?: string; includeInsights?: boolean } = {},
+  opts: { tag?: string | null; sort?: string; includeInsights?: boolean; followedTags?: string[] } = {},
 ) {
   await ensureQuestionsSeeded(db);
 
@@ -884,8 +884,13 @@ export async function fetchQuestionsFeed(
   }
 
   const tagFilter = opts.tag?.replace(/^#/, '').trim().toLowerCase();
+  const followedSet = new Set((opts.followedTags ?? []).map((t) => t.replace(/^#/, '').trim().toLowerCase()));
   const filtered = tagFilter && tagFilter !== 'all'
-    ? rows.filter((r) => Array.isArray(r.tags) && r.tags.some((t) => t.toLowerCase() === tagFilter))
+    ? tagFilter === 'following'
+      ? followedSet.size === 0
+        ? []
+        : rows.filter((r) => Array.isArray(r.tags) && r.tags.some((t) => followedSet.has(t.toLowerCase())))
+      : rows.filter((r) => Array.isArray(r.tags) && r.tags.some((t) => t.toLowerCase() === tagFilter))
     : rows;
 
   return filtered.map((r) => {

@@ -9,7 +9,14 @@ export default async function Home() {
   if (!user) redirect('/login');
   return (
     <Workspace
-      user={{ id: user.id, name: user.name, email: user.email, image: user.image, plan: user.plan }}
+      user={{
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        image: user.image,
+        plan: user.plan,
+        followedTags: user.followedTags,
+      }}
       aiEnabled={Boolean(process.env.OPENAI_API_KEY)}
     />
   );

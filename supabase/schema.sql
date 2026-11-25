@@ -8,6 +8,8 @@ create table if not exists users (
   name text,
   image text,
   plan text not null default 'free',
+  followed_tags jsonb not null default '[]'::jsonb,
+  redeemed_coupon text,
   created_at timestamptz not null default now()
 );
 
