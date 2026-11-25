@@ -4,30 +4,26 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   ArrowRight,
-  Brain,
   Check,
-  ChevronDown,
-  ChevronUp,
   Copy,
-  GitBranch,
-  HelpCircle,
+  Crown,
+  Hash,
   Layers,
-  Lightbulb,
   MessageCircle,
-  MessageSquareShare,
   Plus,
   RefreshCw,
   Send,
   Sparkles,
+  ThumbsDown,
   ThumbsUp,
   Trash2,
   UserCheck,
   Wand2,
   X,
 } from 'lucide-react';
-import type { ContactDTO, QuestionClusterDTO, QuestionCommentDTO, QuestionDTO, SynthesizedQuestionDTO } from './types';
-import { CATEGORY_LABELS } from '@/lib/default-questions';
-import { ApplyBar } from './apply-bar';
+import type { ContactDTO, QuestionClusterDTO, QuestionCommentDTO, QuestionDTO, SynthesizedQuestionDTO, VoterInfoDTO } from './types';
+import { extractHashtags, SUGGESTED_HASHTAGS, tagBadgeColor } from '@/lib/default-questions';
+import type { UserPlan } from '@/lib/api';
 import { Avatar } from './ui';
 import { clsx } from './clsx';
 
@@ -37,7 +33,7 @@ interface Props {
   selectedContactId: string | null;
   onApply: (contactId: string, text: string) => void;
   onCountChange?: (count: number) => void;
-  currentUser: { id?: string; name: string; email: string; image: string | null };
+  currentUser: { id?: string; name: string; email: string; image: string | null; plan: UserPlan };
 }
 
 type BankTab = 'feed' | 'clusters' | 'synthesizer';
@@ -50,37 +46,49 @@ const PERSONA_OPTIONS = [
   'Сунгалт ба Өөр даатгалтай харилцагч',
 ];
 
+function formatShortTime(iso: string): string {
+  const d = new Date(iso);
+  const diffMin = Math.floor((Date.now() - d.getTime()) / 60000);
+  if (diffMin < 1) return 'Саяхан';
+  if (diffMin < 60) return `${diffMin}м`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}ц`;
+  return d.toLocaleDateString('mn-MN', { month: 'short', day: 'numeric' });
+}
+
 export function QuestionsView({ query, contacts, selectedContactId, onApply, onCountChange, currentUser }: Props) {
+  const isPro = currentUser.plan === 'pro';
   const [subTab, setSubTab] = useState<BankTab>('feed');
   const [questions, setQuestions] = useState<QuestionDTO[]>([]);
   const [clusters, setClusters] = useState<QuestionClusterDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingClusters, setLoadingClusters] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [analyzeBanner, setAnalyzeBanner] = useState<string | null>(null);
+  const [banner, setBanner] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
-  const [category, setCategory] = useState<string>('all');
-  const [sort, setSort] = useState<'votes' | 'newest'>('votes');
+  const [activeTag, setActiveTag] = useState<string>('all');
+  const [sort, setSort] = useState<'votes' | 'newest'>('newest');
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [modalOpen, setModalOpen] = useState(false);
   const [highlightedClusterId, setHighlightedClusterId] = useState<string | null>(null);
 
-  // Асуулт бүрийн AI дүгнэлт болон коммент дэлгэх төлөв
-  const [expandedAI, setExpandedAI] = useState<Record<string, boolean>>({});
+  // Сэтгэгдэл болон хэн like/unlike хийснийг дэлгэх төлөв
   const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({});
+  const [expandedVoters, setExpandedVoters] = useState<Record<string, boolean>>({});
+  const [expandedProInsight, setExpandedProInsight] = useState<Record<string, boolean>>({});
   const [commentsByQuestion, setCommentsByQuestion] = useState<Record<string, QuestionCommentDTO[]>>({});
   const [loadingComments, setLoadingComments] = useState<Record<string, boolean>>({});
   const [newCommentText, setNewCommentText] = useState<Record<string, string>>({});
   const [submittingComment, setSubmittingComment] = useState<Record<string, boolean>>({});
 
-  // Шинэ асуулт нэмэх form
-  const [newTitle, setNewTitle] = useState('');
+  // Threads хэв маягийн дээд Composer
+  const [composerOpen, setComposerOpen] = useState(false);
   const [newQuestion, setNewQuestion] = useState('');
-  const [newCategory, setNewCategory] = useState('discovery');
   const [newContext, setNewContext] = useState('');
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [customTagInput, setCustomTagInput] = useState('');
   const [creating, setCreating] = useState(false);
 
-  // Асуулт боловсруулагч (Synthesizer) төлөв
+  // Pro: Асуулт боловсруулагч
   const [synthMode, setSynthMode] = useState<'persona' | 'contact'>('persona');
   const [synthPersona, setSynthPersona] = useState(PERSONA_OPTIONS[0]);
   const [synthContactId, setSynthContactId] = useState(selectedContactId || contacts[0]?.id || '');
@@ -103,14 +111,14 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, onC
     setLoading(true);
     setApiError(null);
     try {
-      const r = await fetch(`/api/questions?category=${category}&sort=${sort}`);
+      const r = await fetch(`/api/questions?tag=${encodeURIComponent(activeTag)}&sort=${sort}`);
       if (!r.ok) {
         const err = await r.json().catch(() => null);
         throw new Error(err?.error || 'Асуултын санг ачаалж чадсангүй');
       }
       const data: QuestionDTO[] = await r.json();
       setQuestions(data);
-      if (category === 'all' && onCountChange) {
+      if (activeTag === 'all' && onCountChange) {
         onCountChange(data.length);
       }
     } catch (err) {
@@ -119,20 +127,21 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, onC
     } finally {
       setLoading(false);
     }
-  }, [category, sort, onCountChange]);
+  }, [activeTag, sort, onCountChange]);
 
   const fetchClusters = useCallback(async () => {
+    if (!isPro) return;
     setLoadingClusters(true);
     setApiError(null);
     try {
       const r = await fetch('/api/questions/clusters');
       if (!r.ok) {
         const err = await r.json().catch(() => null);
-        throw new Error(err?.error || 'Кластерийн тайланг ачаалж чадсангүй');
+        throw new Error(err?.error || 'Шинжилгээ ачаалж чадсангүй');
       }
       const data: { clusters: QuestionClusterDTO[]; questions: QuestionDTO[] } = await r.json();
       setClusters(data.clusters);
-      if (category === 'all' && data.questions.length) {
+      if (activeTag === 'all' && data.questions.length) {
         setQuestions(data.questions);
         if (onCountChange) onCountChange(data.questions.length);
       }
@@ -141,29 +150,28 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, onC
     } finally {
       setLoadingClusters(false);
     }
-  }, [category, onCountChange]);
+  }, [isPro, activeTag, onCountChange]);
 
   useEffect(() => {
     fetchQuestions();
   }, [fetchQuestions]);
 
-  // Кластер эсвэл Боловсруулагч руу анх ороход кластеруудыг татна
   useEffect(() => {
-    if ((subTab === 'clusters' || subTab === 'synthesizer') && clusters.length === 0 && !loadingClusters) {
+    if (isPro && (subTab === 'clusters' || subTab === 'synthesizer') && clusters.length === 0 && !loadingClusters) {
       fetchClusters();
     }
-  }, [subTab, clusters.length, loadingClusters, fetchClusters]);
+  }, [isPro, subTab, clusters.length, loadingClusters, fetchClusters]);
 
   const handleRunAnalyze = async () => {
-    if (analyzing) return;
+    if (!isPro || analyzing) return;
     setAnalyzing(true);
     setApiError(null);
-    setAnalyzeBanner(null);
+    setBanner(null);
     try {
       const res = await fetch('/api/questions/analyze', { method: 'POST' });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
-        throw new Error(err?.error || 'AI шинжилгээ амжилтгүй боллоо');
+        throw new Error(err?.error || 'Шинжилгээ амжилтгүй боллоо');
       }
       const data = await res.json();
       setClusters(data.clusters || []);
@@ -171,10 +179,7 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, onC
         setQuestions(data.questions);
         if (onCountChange) onCountChange(data.questions.length);
       }
-      const modelNote = data.stats?.model === 'local-trigram-v1' ? 'Локал триграм вектор' : data.stats?.model || 'AI Vector';
-      setAnalyzeBanner(
-        `Амжилттай: ${data.stats?.questionsCount ?? 0} асуултыг ${modelNote} ашиглан ${data.stats?.clustersCount ?? 0} кластерт хувааж, Persona дүгнэлт боловсрууллаа.`,
-      );
+      setBanner(`Нийт ${data.stats?.questionsCount ?? 0} асуултыг ${data.stats?.clustersCount ?? 0} бүлэг болгон дүгнэлт гаргалаа.`);
     } catch (err) {
       setApiError((err as Error).message);
     } finally {
@@ -184,7 +189,7 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, onC
 
   const handleSynthesize = async (e?: React.FormEvent, overrides?: { clusterId?: string; questionId?: string }) => {
     if (e) e.preventDefault();
-    if (synthesizing) return;
+    if (!isPro || synthesizing) return;
 
     const cid = overrides?.clusterId ?? (synthClusterId || null);
     const qid = overrides?.questionId ?? (synthQuestionId || null);
@@ -215,7 +220,7 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, onC
     }
   };
 
-  const publishQuestionToBank = async (payload: { title: string; question: string; category: string; context?: string | null }) => {
+  const publishQuestionToBank = async (payload: { title?: string; question: string; tags?: string[]; context?: string | null }) => {
     setPublishingSynth(true);
     setApiError(null);
     try {
@@ -228,7 +233,7 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, onC
         const err = await res.json().catch(() => null);
         throw new Error(err?.error || 'Санд нэмэхэд алдаа гарлаа');
       }
-      setAnalyzeBanner('AI-ийн боловсруулсан асуулт санд нэмэгдэж, вектортой холбогдлоо!');
+      setBanner('Шинэ асуулт амжилттай нийтлэгдлээ!');
       await fetchQuestions();
       setSubTab('feed');
     } catch (err) {
@@ -238,35 +243,61 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, onC
     }
   };
 
-  const handleVote = async (id: string, e: React.MouseEvent) => {
+  // Like / Unlike (0 хуурамч тоо, хэн дарсныг шууд харуулна)
+  const handleVote = async (id: string, type: 'like' | 'unlike', e: React.MouseEvent) => {
     e.stopPropagation();
     setApiError(null);
-    let prevSnapshot: QuestionDTO | undefined;
+    let snapshot: QuestionDTO | undefined;
+    const me: VoterInfoDTO = { userId: currentUserId, name: currentUser.name || currentUser.email, image: currentUser.image };
+
     setQuestions((prev) =>
       prev.map((q) => {
         if (q.id !== id) return q;
-        prevSnapshot = q;
-        const willVote = !q.userVoted;
+        snapshot = q;
+        const same = q.userVote === type;
+        const nextVote = same ? null : type;
+        const likedBy = q.likedBy.filter((v) => v.userId !== currentUserId);
+        const unlikedBy = q.unlikedBy.filter((v) => v.userId !== currentUserId);
+        if (nextVote === 'like') likedBy.push(me);
+        if (nextVote === 'unlike') unlikedBy.push(me);
         return {
           ...q,
-          userVoted: willVote,
-          votesCount: willVote ? q.votesCount + 1 : Math.max(0, q.votesCount - 1),
+          userVote: nextVote,
+          votesCount: likedBy.length,
+          dislikesCount: unlikedBy.length,
+          likedBy,
+          unlikedBy,
         };
       }),
     );
 
     try {
-      const res = await fetch(`/api/questions/${id}/vote`, { method: 'POST' });
+      const res = await fetch(`/api/questions/${id}/vote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type }),
+      });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
-        throw new Error(err?.error || 'Vote өгөхөд алдаа гарлаа');
+        throw new Error(err?.error || 'Санал өгөхөд алдаа гарлаа');
       }
       const data = await res.json();
-      setQuestions((prev) => prev.map((q) => (q.id === id ? { ...q, userVoted: data.voted, votesCount: data.votesCount } : q)));
+      setQuestions((prev) =>
+        prev.map((q) =>
+          q.id === id
+            ? {
+                ...q,
+                userVote: data.userVote,
+                votesCount: data.votesCount,
+                dislikesCount: data.dislikesCount,
+                likedBy: data.likedBy,
+                unlikedBy: data.unlikedBy,
+              }
+            : q,
+        ),
+      );
     } catch (err) {
-      if (prevSnapshot) {
-        setQuestions((prev) => prev.map((q) => (q.id === id ? prevSnapshot! : q)));
-      }
+      if (snapshot) setQuestions((prev) => prev.map((q) => (q.id === id ? snapshot! : q)));
       setApiError((err as Error).message);
     }
   };
@@ -342,7 +373,7 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, onC
   };
 
   const handleDeleteQuestion = async (id: string) => {
-    if (!confirm('Энэ асуултыг сангаас устгах уу?')) return;
+    if (!confirm('Энэ асуултыг устгах уу?')) return;
     setApiError(null);
     try {
       const res = await fetch(`/api/questions/${id}`, { method: 'DELETE' });
@@ -352,7 +383,7 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, onC
       }
       setQuestions((prev) => {
         const next = prev.filter((q) => q.id !== id);
-        if (category === 'all' && onCountChange) onCountChange(next.length);
+        if (activeTag === 'all' && onCountChange) onCountChange(next.length);
         return next;
       });
     } catch (err) {
@@ -360,31 +391,49 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, onC
     }
   };
 
-  const handleCreateQuestion = async (e: React.FormEvent) => {
+  const toggleTagInComposer = (tag: string) => {
+    const clean = tag.replace(/^#/, '').toLowerCase();
+    setSelectedTags((prev) => (prev.includes(clean) ? prev.filter((t) => t !== clean) : [...prev, clean]));
+  };
+
+  const addCustomTag = () => {
+    const clean = customTagInput
+      .trim()
+      .replace(/^#+/, '')
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}_]/gu, '');
+    if (clean.length >= 2 && !selectedTags.includes(clean)) {
+      setSelectedTags((prev) => [...prev, clean]);
+    }
+    setCustomTagInput('');
+  };
+
+  const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTitle.trim() || !newQuestion.trim() || creating) return;
+    if (!newQuestion.trim() || creating) return;
 
     setApiError(null);
     setCreating(true);
     try {
+      const mergedTags = extractHashtags(`${newQuestion} ${newContext}`, selectedTags);
       const res = await fetch('/api/questions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: newTitle.trim(),
           question: newQuestion.trim(),
-          category: newCategory,
+          tags: mergedTags,
           context: newContext.trim() || null,
         }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
-        throw new Error(err?.error || 'Асуулт нийтлэхэд алдаа гарлаа');
+        throw new Error(err?.error || 'Нийтлэхэд алдаа гарлаа');
       }
-      setNewTitle('');
       setNewQuestion('');
       setNewContext('');
-      setModalOpen(false);
+      setSelectedTags([]);
+      setCustomTagInput('');
+      setComposerOpen(false);
       await fetchQuestions();
     } catch (err) {
       setApiError((err as Error).message);
@@ -400,25 +449,42 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, onC
   };
 
   const openSynthesizerFor = (opts: { clusterId?: string; questionId?: string }) => {
+    if (!isPro) return;
     if (opts.clusterId) setSynthClusterId(opts.clusterId);
     if (opts.questionId) setSynthQuestionId(opts.questionId);
     setSubTab('synthesizer');
     void handleSynthesize(undefined, opts);
   };
 
-  const questionById = useMemo(() => new Map(questions.map((q) => [q.id, q])), [questions]);
+  // Бүх нийтлэлүүдээс үүссэн #таг-уудын жагсаалт
+  const allTagList = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const q of questions) {
+      for (const t of q.tags || []) {
+        counts.set(t, (counts.get(t) ?? 0) + 1);
+      }
+    }
+    for (const s of SUGGESTED_HASHTAGS) {
+      if (!counts.has(s.tag)) counts.set(s.tag, 0);
+    }
+    return Array.from(counts.entries())
+      .filter(([, c]) => c > 0 || activeTag !== 'all')
+      .sort((a, b) => b[1] - a[1])
+      .map(([tag]) => tag);
+  }, [questions, activeTag]);
+
   const clusterById = useMemo(() => new Map(clusters.map((c) => [c.id, c])), [clusters]);
 
   const filteredQuestions = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = query.trim().toLowerCase().replace(/^#/, '');
     if (!q) return questions;
     return questions.filter(
       (item) =>
         item.title.toLowerCase().includes(q) ||
         item.question.toLowerCase().includes(q) ||
         (item.context && item.context.toLowerCase().includes(q)) ||
-        (item.aiAnalysis && item.aiAnalysis.toLowerCase().includes(q)) ||
-        item.authorName.toLowerCase().includes(q),
+        item.authorName.toLowerCase().includes(q) ||
+        (item.tags || []).some((t) => t.toLowerCase().includes(q)),
     );
   }, [questions, query]);
 
@@ -434,125 +500,116 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, onC
     );
   }, [clusters, query]);
 
+  const detectedTagsInDraft = useMemo(
+    () => extractHashtags(`${newQuestion} ${newContext}`, selectedTags),
+    [newQuestion, newContext, selectedTags],
+  );
+
   const targetContactId = selectedContactId || contacts[0]?.id || '';
-  const vectorizedCount = questions.filter((q) => Boolean(q.embeddingModel)).length;
-  const activeVectorModel = questions.find((q) => q.embeddingModel)?.embeddingModel;
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col">
-      {/* Top Banner */}
+    <div className="flex min-w-0 flex-1 flex-col bg-canvas/40">
+      {/* Clean Minimal Header */}
       <div className="border-b border-line bg-panel px-6 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-brand text-white shadow-sm">
-              <MessageSquareShare className="h-6 w-6" />
-            </div>
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-lg font-bold text-ink">Борлуулалтын Асуултын Банк</h1>
-                <span className="rounded-full bg-secondary px-2.5 py-0.5 text-[11px] font-bold text-lime-dark">
-                  AI Vector & Cluster
-                </span>
-              </div>
-              <p className="text-[13px] text-ink-2">
-                Хамт олны vote ба туршлагаас вектор кластер, Persona дүгнэлт, оновчилсон асуулт боловсруулна.
-              </p>
-            </div>
+        <div className="mx-auto flex max-w-[680px] flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-[18px] font-bold tracking-tight text-ink">Асуултын банк</h1>
+            <p className="text-[12.5px] text-ink-2">Борлуулалтын шилдэг асуултууд, бодит сэтгэгдэл ба туршлага</p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2">
             {subTab === 'feed' && (
-              <div className="inline-flex rounded-xl border border-line bg-white p-1 text-xs font-medium">
-                <button
-                  onClick={() => setSort('votes')}
-                  className={clsx(
-                    'rounded-lg px-2.5 py-1 transition-colors',
-                    sort === 'votes' ? 'bg-brand font-semibold text-white shadow-sm' : 'text-ink-2 hover:text-ink',
-                  )}
-                >
-                  Олон Vote
-                </button>
+              <div className="inline-flex rounded-full border border-line bg-canvas p-0.5 text-xs font-medium">
                 <button
                   onClick={() => setSort('newest')}
                   className={clsx(
-                    'rounded-lg px-2.5 py-1 transition-colors',
-                    sort === 'newest' ? 'bg-brand font-semibold text-white shadow-sm' : 'text-ink-2 hover:text-ink',
+                    'rounded-full px-3 py-1 transition-colors',
+                    sort === 'newest' ? 'bg-white font-semibold text-ink shadow-xs' : 'text-ink-2 hover:text-ink',
                   )}
                 >
                   Шинэ
+                </button>
+                <button
+                  onClick={() => setSort('votes')}
+                  className={clsx(
+                    'rounded-full px-3 py-1 transition-colors',
+                    sort === 'votes' ? 'bg-white font-semibold text-ink shadow-xs' : 'text-ink-2 hover:text-ink',
+                  )}
+                >
+                  Шилдэг
                 </button>
               </div>
             )}
 
             <button
-              onClick={handleRunAnalyze}
-              disabled={analyzing}
-              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-brand/30 bg-brand-soft px-3 text-xs font-semibold text-brand hover:bg-secondary-soft disabled:opacity-60"
-              title="Бүх асуулт, комментийг векторжуулж кластер болон Persona дүгнэлт гаргана"
+              onClick={() => {
+                setSubTab('feed');
+                setComposerOpen(true);
+              }}
+              className="inline-flex h-8 items-center gap-1.5 rounded-full bg-brand px-3.5 text-xs font-semibold text-white hover:bg-brand-600"
             >
-              <RefreshCw className={clsx('h-3.5 w-3.5', analyzing && 'animate-spin')} />
-              <span>{analyzing ? 'AI Шинжилж байна...' : 'AI Вектор & Кластер'}</span>
-            </button>
-
-            <button
-              onClick={() => setModalOpen(true)}
-              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-brand px-3.5 text-xs font-semibold text-white shadow-sm hover:bg-brand-600"
-            >
-              <Plus className="h-4 w-4" />
-              Шинэ асуулт
+              <Plus className="h-3.5 w-3.5" />
+              Асуулт бичих
             </button>
           </div>
         </div>
 
-        {/* Sub-Navigation Tabs + Category Filter */}
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-line/60 pt-3">
-          <div className="flex gap-1">
-            {[
-              { id: 'feed', label: `Бүх асуулт (${questions.length})`, icon: MessageCircle },
-              { id: 'clusters', label: `AI Кластер & Дүгнэлт${clusters.length ? ` (${clusters.length})` : ''}`, icon: Layers },
-              { id: 'synthesizer', label: 'Persona Асуулт Боловсруулагч', icon: Wand2 },
-            ].map((t) => {
-              const Icon = t.icon;
-              const active = subTab === t.id;
-              return (
-                <button
-                  key={t.id}
-                  onClick={() => setSubTab(t.id as BankTab)}
-                  className={clsx(
-                    'inline-flex items-center gap-1.5 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-semibold transition-colors',
-                    active ? 'bg-brand text-white shadow-sm' : 'text-ink-2 hover:bg-hover hover:text-ink',
-                  )}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  <span>{t.label}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          {activeVectorModel && (
-            <span className="text-[11px] text-ink-3">
-              Вектор: {vectorizedCount}/{questions.length} · Загвар: <strong className="text-ink-2">{activeVectorModel}</strong>
+        {/* Pro Tabs (Зөвхөн Pro хэрэглэгчид харагдана) */}
+        {isPro && (
+          <div className="mx-auto mt-3 flex max-w-[680px] items-center justify-between gap-2 border-t border-line/60 pt-2.5">
+            <div className="flex gap-1">
+              {[
+                { id: 'feed', label: 'Асуултын сан', icon: MessageCircle },
+                { id: 'clusters', label: 'Бүлэг & Дүгнэлт', icon: Layers },
+                { id: 'synthesizer', label: 'Асуулт зохиох', icon: Wand2 },
+              ].map((t) => {
+                const Icon = t.icon;
+                const active = subTab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => setSubTab(t.id as BankTab)}
+                    className={clsx(
+                      'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors',
+                      active ? 'bg-brand text-white' : 'text-ink-2 hover:bg-hover hover:text-ink',
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    <span>{t.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2.5 py-0.5 text-[11px] font-bold text-brand">
+              <Crown className="h-3 w-3" /> Pro
             </span>
-          )}
-        </div>
+          </div>
+        )}
 
+        {/* Hashtag Strip */}
         {subTab === 'feed' && (
-          <div className="mt-3 flex gap-1.5 overflow-x-auto pt-1">
-            {Object.entries(CATEGORY_LABELS).map(([key, item]) => {
-              const active = category === key;
+          <div className="mx-auto mt-3 flex max-w-[680px] gap-1.5 overflow-x-auto pb-0.5">
+            <button
+              onClick={() => setActiveTag('all')}
+              className={clsx(
+                'whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium transition-colors',
+                activeTag === 'all' ? 'bg-ink text-white' : 'border border-line bg-white text-ink-2 hover:text-ink',
+              )}
+            >
+              Бүгд
+            </button>
+            {allTagList.map((tag) => {
+              const active = activeTag === tag;
               return (
                 <button
-                  key={key}
-                  onClick={() => setCategory(key)}
+                  key={tag}
+                  onClick={() => setActiveTag(active ? 'all' : tag)}
                   className={clsx(
-                    'whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium transition-all',
-                    active
-                      ? 'bg-ink font-semibold text-white shadow-sm'
-                      : 'border border-line bg-white text-ink-2 hover:border-brand hover:text-ink',
+                    'whitespace-nowrap rounded-full border px-3 py-1 text-xs font-medium transition-all',
+                    active ? 'border-brand bg-brand text-white' : tagBadgeColor(tag),
                   )}
                 >
-                  {item.label}
+                  #{tag}
                 </button>
               );
             })}
@@ -560,21 +617,17 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, onC
         )}
       </div>
 
-      {/* Feedback Banners */}
-      {analyzeBanner && (
-        <div className="mx-6 mt-4 flex items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-brand-soft px-4 py-2.5 text-xs font-medium text-brand">
-          <div className="flex items-center gap-2">
-            <Brain className="h-4 w-4 shrink-0" />
-            <span>{analyzeBanner}</span>
-          </div>
-          <button onClick={() => setAnalyzeBanner(null)} className="rounded p-0.5 hover:bg-white">
+      {/* Banners */}
+      {banner && (
+        <div className="mx-auto mt-3 flex w-full max-w-[680px] items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-brand-soft px-4 py-2 text-xs font-medium text-brand">
+          <span>{banner}</span>
+          <button onClick={() => setBanner(null)} className="rounded p-0.5 hover:bg-white">
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
       )}
-
       {apiError && (
-        <div className="mx-6 mt-4 flex items-center justify-between gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs text-rose-700">
+        <div className="mx-auto mt-3 flex w-full max-w-[680px] items-center justify-between gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-xs text-rose-700">
           <div className="flex items-center gap-2">
             <AlertCircle className="h-4 w-4 shrink-0" />
             <span>{apiError}</span>
@@ -585,530 +638,584 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, onC
         </div>
       )}
 
-      {/* Main Content Area */}
-      <div className="scroll-thin flex-1 overflow-y-auto px-6 py-6">
-        {/* ================= TAB 1: SOCIAL FEED ================= */}
+      {/* Main Scroll Area */}
+      <div className="scroll-thin flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+        {/* ================= THREADS SOCIAL FEED ================= */}
         {subTab === 'feed' && (
-          <div className="mx-auto max-w-[820px] space-y-5">
-            {loading ? (
-              <div className="flex flex-col items-center justify-center py-20 text-ink-3">
-                <div className="h-8 w-8 animate-spin rounded-full border-2 border-brand border-t-transparent" />
-                <p className="mt-3 text-xs">Асуултын санг ачаалж байна...</p>
-              </div>
-            ) : filteredQuestions.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-line bg-white p-12 text-center">
-                <HelpCircle className="mx-auto h-10 w-10 text-ink-3" />
-                <h3 className="mt-3 text-sm font-bold text-ink">Асуулт олдсонгүй</h3>
-                <p className="mt-1 text-xs text-ink-2">Та шинэ асуулт нийтэлж багийнхантайгаа хуваалцаарай.</p>
+          <div className="mx-auto max-w-[680px] space-y-3">
+            {/* Inline Threads Composer Card */}
+            <div className="rounded-2xl border border-line bg-white p-4 shadow-2xs">
+              {!composerOpen ? (
                 <button
-                  onClick={() => setModalOpen(true)}
-                  className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-brand px-4 py-2 text-xs font-semibold text-white"
+                  onClick={() => setComposerOpen(true)}
+                  className="flex w-full items-center gap-3 text-left"
                 >
-                  <Plus className="h-4 w-4" /> Шинэ асуулт нэмэх
+                  <Avatar name={currentUser.name || currentUser.email} image={currentUser.image} size={36} />
+                  <span className="flex-1 text-sm text-ink-3">
+                    Ямар асуулт сайн ажилласан бэ? #автотээврийндаатгал гэх мэтээр хуваалцаарай...
+                  </span>
+                  <span className="rounded-full bg-brand px-3.5 py-1.5 text-xs font-semibold text-white">Бичих</span>
                 </button>
-              </div>
-            ) : (
-              filteredQuestions.map((q) => {
-                const catMeta = CATEGORY_LABELS[q.category] || CATEGORY_LABELS.discovery;
-                const isCommentsOpen = Boolean(expandedComments[q.id]);
-                const isAIOpen = Boolean(expandedAI[q.id]);
-                const comments = commentsByQuestion[q.id] || [];
-                const canDeleteQuestion = q.userId === currentUserId;
-                const topPersona = q.personaScores?.[0];
-                const clusterObj = q.clusterId ? clusterById.get(q.clusterId) : undefined;
-                const hasAI = Boolean(q.aiAnalysis || topPersona);
+              ) : (
+                <form onSubmit={handleCreatePost} className="space-y-3">
+                  <div className="flex gap-3">
+                    <Avatar name={currentUser.name || currentUser.email} image={currentUser.image} size={36} />
+                    <div className="min-w-0 flex-1 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[13.5px] font-semibold text-ink">{currentUser.name || currentUser.email}</span>
+                        <button
+                          type="button"
+                          onClick={() => setComposerOpen(false)}
+                          className="rounded-lg p-1 text-ink-3 hover:bg-hover hover:text-ink"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
 
-                return (
-                  <div key={q.id} className="rounded-2xl border border-line bg-white shadow-sm transition-all hover:border-brand/40">
-                    <div className="p-5 pb-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex items-center gap-2.5">
-                          <Avatar name={q.authorName} image={q.authorImage} size={32} />
-                          <div>
-                            <p className="text-[13px] font-semibold leading-tight text-ink">{q.authorName}</p>
-                            <p className="text-[11px] text-ink-3">
-                              {new Date(q.createdAt).toLocaleDateString('mn-MN', { month: 'short', day: 'numeric' })}
-                            </p>
-                          </div>
-                        </div>
+                      <textarea
+                        autoFocus
+                        required
+                        minLength={5}
+                        maxLength={2000}
+                        rows={3}
+                        value={newQuestion}
+                        onChange={(e) => setNewQuestion(e.target.value)}
+                        placeholder="Асуултаа бичнэ үү... (текст дотор #автотээврийндаатгал #хаалт гэх мэт tag бичиж болно)"
+                        className="w-full resize-none rounded-xl border border-line bg-canvas/40 p-3 text-[14px] leading-relaxed text-ink outline-none placeholder:text-ink-3 focus:border-brand focus:bg-white"
+                      />
 
+                      <input
+                        maxLength={500}
+                        value={newContext}
+                        onChange={(e) => setNewContext(e.target.value)}
+                        placeholder="Тайлбар / Хэзээ асуухад зүгээр вэ? (заавал биш)"
+                        className="w-full rounded-xl border border-line bg-white px-3 py-2 text-xs text-ink outline-none placeholder:text-ink-3 focus:border-brand"
+                      />
+
+                      {/* Hashtag Picker */}
+                      <div className="space-y-2 rounded-xl bg-canvas/50 p-2.5">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          {topPersona && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-secondary-soft px-2.5 py-0.5 text-[11px] font-semibold text-lime-dark">
-                              <UserCheck className="h-3 w-3" />
-                              {topPersona.personaName.split('(')[0].trim()} · {topPersona.score}%
-                            </span>
-                          )}
-                          {clusterObj && (
-                            <button
-                              onClick={() => {
-                                setHighlightedClusterId(clusterObj.id);
-                                setSubTab('clusters');
-                              }}
-                              className="inline-flex items-center gap-1 rounded-full border border-brand/20 bg-brand-soft px-2.5 py-0.5 text-[11px] font-medium text-brand hover:bg-secondary-soft"
-                            >
-                              <Layers className="h-3 w-3" />
-                              {clusterObj.name.slice(0, 28)}
-                            </button>
-                          )}
-                          <span className={clsx('rounded-full border px-2.5 py-0.5 text-[11px] font-semibold', catMeta.color)}>
-                            {catMeta.label}
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-ink-2">
+                            <Hash className="h-3 w-3" /> Таг сонгох:
                           </span>
-                          {canDeleteQuestion && (
-                            <button
-                              onClick={() => handleDeleteQuestion(q.id)}
-                              title="Өөрийн асуултыг устгах"
-                              className="rounded-lg p-1 text-ink-3 hover:bg-rose-50 hover:text-rose-600"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          )}
+                          {SUGGESTED_HASHTAGS.map((s) => {
+                            const active = detectedTagsInDraft.includes(s.tag);
+                            return (
+                              <button
+                                key={s.tag}
+                                type="button"
+                                onClick={() => toggleTagInComposer(s.tag)}
+                                className={clsx(
+                                  'rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-all',
+                                  active ? 'border-brand bg-brand text-white' : s.color,
+                                )}
+                              >
+                                #{s.tag}
+                              </button>
+                            );
+                          })}
                         </div>
-                      </div>
 
-                      <div className="mt-3.5 space-y-2">
-                        <h3 className="text-[15px] font-bold text-ink">{q.title}</h3>
-
-                        <div className="rounded-xl border border-brand/20 bg-brand-soft/20 p-3.5">
-                          <p className="font-serif text-[14px] font-medium italic leading-relaxed text-ink">{q.question}</p>
-                        </div>
-
-                        {q.context && (
-                          <div className="flex items-start gap-2 pt-1 text-xs text-ink-2">
-                            <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-                            <p>{q.context}</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Actions Bar */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-b-2xl border-t border-line/70 bg-panel/40 px-5 py-2.5">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          onClick={(e) => handleVote(q.id, e)}
-                          className={clsx(
-                            'inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all',
-                            q.userVoted
-                              ? 'border-brand bg-brand text-white shadow-sm'
-                              : 'border-line bg-white text-ink-2 hover:border-brand hover:text-brand',
-                          )}
-                        >
-                          <ThumbsUp className={clsx('h-3.5 w-3.5', q.userVoted && 'fill-current')} />
-                          <span>{q.votesCount} Vote</span>
-                        </button>
-
-                        <button
-                          onClick={() => toggleComments(q.id)}
-                          className={clsx(
-                            'inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors',
-                            isCommentsOpen
-                              ? 'border-brand/40 bg-brand-soft font-semibold text-brand'
-                              : 'border-line bg-white text-ink-2 hover:bg-panel hover:text-ink',
-                          )}
-                        >
-                          <MessageCircle className="h-3.5 w-3.5" />
-                          <span>{q.commentsCount} туршлага</span>
-                          {isCommentsOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                        </button>
-
-                        {hasAI && (
+                        <div className="flex items-center gap-2">
+                          <input
+                            value={customTagInput}
+                            onChange={(e) => setCustomTagInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ',') {
+                                e.preventDefault();
+                                addCustomTag();
+                              }
+                            }}
+                            placeholder="#шинэтаг нэмээд Enter дарна уу"
+                            className="h-7 flex-1 rounded-lg border border-line bg-white px-2.5 text-xs outline-none focus:border-brand"
+                          />
                           <button
-                            onClick={() => setExpandedAI((prev) => ({ ...prev, [q.id]: !isAIOpen }))}
-                            className={clsx(
-                              'inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors',
-                              isAIOpen
-                                ? 'border-brand bg-secondary-soft font-semibold text-lime-dark'
-                                : 'border-line bg-white text-ink-2 hover:border-brand hover:text-brand',
-                            )}
+                            type="button"
+                            onClick={addCustomTag}
+                            className="h-7 rounded-lg border border-line bg-white px-2.5 text-[11px] font-medium text-ink hover:border-brand"
                           >
-                            <Brain className="h-3.5 w-3.5" />
-                            <span>AI Дүгнэлт</span>
+                            + Нэмэх
                           </button>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => openSynthesizerFor({ questionId: q.id, clusterId: q.clusterId || undefined })}
-                          className="inline-flex items-center gap-1 rounded-xl border border-line bg-white px-2.5 py-1.5 text-xs font-medium text-ink-2 hover:border-brand hover:text-brand"
-                          title="Persona-д тохируулж сайжруулах"
-                        >
-                          <Wand2 className="h-3.5 w-3.5 text-brand" />
-                          <span>Сайжруулах</span>
-                        </button>
-
-                        <button
-                          onClick={() => handleCopy(q.id, q.question)}
-                          className="inline-flex items-center gap-1 rounded-xl border border-line bg-white px-2.5 py-1.5 text-xs font-medium text-ink-2 hover:border-brand hover:text-brand"
-                          title="Асуултыг хуулах"
-                        >
-                          {copiedId === q.id ? <Check className="h-3.5 w-3.5 text-brand" /> : <Copy className="h-3.5 w-3.5" />}
-                          <span>{copiedId === q.id ? 'Хуулагдлаа' : 'Хуулах'}</span>
-                        </button>
-
-                        <button
-                          onClick={() =>
-                            onApply(
-                              targetContactId,
-                              `Би харилцагчид дараах асуултыг тавих гэж байна: "${q.refinedVariant || q.question}". Энэ харилцагчийн нөхцөлд энэ асуултыг хэрхэн эвтэйхэн хэлэх, хариулснаас нь шалтгаалан ямар бүтээгдэхүүнийг яаж холбохыг зөвлөөрэй.`,
-                            )
-                          }
-                          className="inline-flex items-center gap-1 rounded-xl bg-brand px-2.5 py-1.5 text-xs font-medium text-white hover:bg-brand-600"
-                          title="Коуч чатад ашиглах"
-                        >
-                          <Sparkles className="h-3.5 w-3.5 text-secondary" />
-                          <span>Чатад ашиглах</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Inline AI Analysis & Related Questions Drawer */}
-                    {isAIOpen && hasAI && (
-                      <div className="space-y-3 border-t border-line bg-secondary-soft/30 p-5">
-                        <div className="flex items-center justify-between">
-                          <span className="flex items-center gap-1.5 text-xs font-bold text-brand">
-                            <Brain className="h-4 w-4" />
-                            AI Ажилласан Байдал & Persona Дүгнэлт
-                          </span>
-                          {q.embeddingModel && <span className="text-[11px] text-ink-3">Вектор: {q.embeddingModel}</span>}
                         </div>
 
-                        {q.aiAnalysis && <p className="text-xs leading-relaxed text-ink">{q.aiAnalysis}</p>}
-
-                        {q.personaScores && q.personaScores.length > 0 && (
-                          <div className="grid gap-2 sm:grid-cols-3">
-                            {q.personaScores.map((p) => (
-                              <div key={p.personaId} className="rounded-xl border border-line bg-white p-2.5">
-                                <div className="flex items-center justify-between text-xs font-semibold text-ink">
-                                  <span className="truncate">{p.personaName.split('(')[0].trim()}</span>
-                                  <span className="text-brand">{p.score}%</span>
-                                </div>
-                                <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-panel">
-                                  <div className="h-full bg-brand" style={{ width: `${p.score}%` }} />
-                                </div>
-                                <p className="mt-1.5 text-[11px] text-ink-2">{p.reason}</p>
-                              </div>
+                        {detectedTagsInDraft.length > 0 && (
+                          <div className="flex flex-wrap gap-1 pt-0.5">
+                            {detectedTagsInDraft.map((t) => (
+                              <span
+                                key={t}
+                                className={clsx('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium', tagBadgeColor(t))}
+                              >
+                                #{t}
+                                {selectedTags.includes(t) && (
+                                  <button type="button" onClick={() => toggleTagInComposer(t)}>
+                                    <X className="h-2.5 w-2.5" />
+                                  </button>
+                                )}
+                              </span>
                             ))}
                           </div>
                         )}
-
-                        {q.refinedVariant && q.refinedVariant !== q.question && (
-                          <div className="rounded-xl border border-brand/30 bg-white p-3">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-bold text-brand">✨ AI Оновчилсон хувилбар:</span>
-                              <button
-                                onClick={() => handleCopy(`ref-${q.id}`, q.refinedVariant!)}
-                                className="text-[11px] font-medium text-brand hover:underline"
-                              >
-                                {copiedId === `ref-${q.id}` ? 'Хуулагдлаа!' : 'Хуулах'}
-                              </button>
-                            </div>
-                            <p className="mt-1 font-serif text-xs italic text-ink">{q.refinedVariant}</p>
-                          </div>
-                        )}
-
-                        {q.relatedQuestionIds && q.relatedQuestionIds.length > 0 && (
-                          <div className="space-y-1.5 pt-1">
-                            <span className="flex items-center gap-1 text-[11px] font-semibold text-ink-2">
-                              <GitBranch className="h-3 w-3 text-brand" />
-                              Вектор ижилсэлтэй / Холбоотой асуултууд:
-                            </span>
-                            <div className="flex flex-wrap gap-1.5">
-                              {q.relatedQuestionIds.map((rid) => {
-                                const rel = questionById.get(rid);
-                                if (!rel) return null;
-                                return (
-                                  <button
-                                    key={rid}
-                                    onClick={() => openSynthesizerFor({ questionId: rel.id, clusterId: rel.clusterId || undefined })}
-                                    className="rounded-lg border border-line bg-white px-2.5 py-1 text-[11px] text-ink-2 hover:border-brand hover:text-brand"
-                                  >
-                                    {rel.title} ({rel.votesCount} vote)
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
                       </div>
-                    )}
 
-                    {/* Comments Thread */}
-                    {isCommentsOpen && (
-                      <div className="space-y-3.5 border-t border-line bg-panel/30 p-5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-ink">
-                            💬 Хамт олны хуваалцсан туршлага, үр дүн ({q.commentsCount}):
-                          </span>
-                          <span className="text-[11px] text-ink-3">Бодит практик туршлагаа бичээрэй</span>
-                        </div>
-
-                        <div className="flex items-start gap-2.5">
-                          <Avatar name={currentUser.name || currentUser.email} image={currentUser.image} size={28} />
-                          <div className="flex-1 space-y-2">
-                            <textarea
-                              rows={2}
-                              maxLength={2000}
-                              value={newCommentText[q.id] || ''}
-                              onChange={(e) => setNewCommentText((prev) => ({ ...prev, [q.id]: e.target.value }))}
-                              placeholder="«Энэ асуултыг асуух үед харилцагч ингэж хариулаад, манай Хялбар даатгалыг сонирхсон...»"
-                              className="w-full rounded-xl border border-line bg-white p-2.5 text-xs text-ink outline-none placeholder:text-ink-3 focus:border-brand"
-                            />
-                            <div className="flex justify-end">
-                              <button
-                                disabled={!newCommentText[q.id]?.trim() || submittingComment[q.id]}
-                                onClick={() => handleAddComment(q.id)}
-                                className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-600 disabled:opacity-50"
-                              >
-                                <Send className="h-3 w-3" />
-                                <span>{submittingComment[q.id] ? 'Илгээж байна...' : 'Туршлага хуваалцах'}</span>
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-
-                        {loadingComments[q.id] ? (
-                          <p className="py-3 text-center text-xs text-ink-3">Сэтгэгдлийг ачаалж байна...</p>
-                        ) : comments.length === 0 ? (
-                          <p className="py-3 text-center text-xs text-ink-3">
-                            Одоогоор туршлага бичигдээгүй байна. Та анхны сэтгэгдлийг бичээрэй!
-                          </p>
-                        ) : (
-                          <div className="space-y-2.5 pt-1">
-                            {comments.map((c) => {
-                              const canDeleteComment = c.userId === currentUserId;
-                              return (
-                                <div key={c.id} className="space-y-1 rounded-xl border border-line/60 bg-white p-3">
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                      <Avatar name={c.authorName} image={c.authorImage} size={22} />
-                                      <span className="text-xs font-bold text-ink">{c.authorName}</span>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-[11px] text-ink-3">
-                                        {new Date(c.createdAt).toLocaleDateString('mn-MN', {
-                                          month: 'short',
-                                          day: 'numeric',
-                                          hour: '2-digit',
-                                          minute: '2-digit',
-                                        })}
-                                      </span>
-                                      {canDeleteComment && (
-                                        <button
-                                          onClick={() => handleDeleteComment(q.id, c.id)}
-                                          title="Сэтгэгдэл устгах"
-                                          className="rounded p-0.5 text-ink-3 hover:bg-rose-50 hover:text-rose-600"
-                                        >
-                                          <Trash2 className="h-3 w-3" />
-                                        </button>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <p className="pl-7 text-xs leading-relaxed text-ink-2">{c.content}</p>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
+                      <div className="flex justify-end gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setComposerOpen(false)}
+                          className="rounded-full px-3.5 py-1.5 text-xs font-medium text-ink-2 hover:bg-hover"
+                        >
+                          Болих
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={creating || newQuestion.trim().length < 5}
+                          className="rounded-full bg-brand px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-600 disabled:opacity-50"
+                        >
+                          {creating ? 'Нийтэлж байна...' : 'Нийтлэх'}
+                        </button>
                       </div>
-                    )}
+                    </div>
                   </div>
-                );
-              })
+                </form>
+              )}
+            </div>
+
+            {/* Threads Feed Cards */}
+            {loading ? (
+              <div className="flex flex-col items-center justify-center py-16 text-ink-3">
+                <div className="h-7 w-7 animate-spin rounded-full border-2 border-brand border-t-transparent" />
+                <p className="mt-3 text-xs">Ачаалж байна...</p>
+              </div>
+            ) : filteredQuestions.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-line bg-white p-10 text-center">
+                <p className="text-sm font-semibold text-ink">Энэ сэдвээр асуулт алга байна</p>
+                <p className="mt-1 text-xs text-ink-2">Та эхний асуултаа бичээд #таг нэмж хуваалцаарай.</p>
+              </div>
+            ) : (
+              <div className="overflow-hidden rounded-2xl border border-line bg-white divide-y divide-line">
+                {filteredQuestions.map((q) => {
+                  const isCommentsOpen = Boolean(expandedComments[q.id]);
+                  const isVotersOpen = Boolean(expandedVoters[q.id]);
+                  const isProOpen = Boolean(expandedProInsight[q.id]);
+                  const comments = commentsByQuestion[q.id] || [];
+                  const canDeleteQuestion = q.userId === currentUserId;
+                  const tags = q.tags || [];
+                  const likedNames = q.likedBy || [];
+                  const unlikedNames = q.unlikedBy || [];
+                  const hasReactions = likedNames.length > 0 || unlikedNames.length > 0;
+
+                  return (
+                    <article key={q.id} className="p-5 transition-colors hover:bg-canvas/20">
+                      <div className="flex gap-3.5">
+                        {/* Left Avatar + Threads Vertical Line */}
+                        <div className="flex flex-col items-center">
+                          <Avatar name={q.authorName} image={q.authorImage} size={38} />
+                          {(isCommentsOpen || isVotersOpen) && <div className="mt-2 w-[2px] flex-1 rounded-full bg-line" />}
+                        </div>
+
+                        {/* Right Content */}
+                        <div className="min-w-0 flex-1">
+                          {/* Author Header */}
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-[14px] font-semibold text-ink">{q.authorName}</span>
+                                {q.userId === 'system' && (
+                                  <span className="rounded-full bg-canvas px-2 py-0.5 text-[10.5px] font-medium text-ink-2">Жишээ</span>
+                                )}
+                                <span className="text-[12px] text-ink-3">{formatShortTime(q.createdAt)}</span>
+                              </div>
+
+                              {/* Instagram / Threads Hashtag Pills */}
+                              {tags.length > 0 && (
+                                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                  {tags.map((t) => (
+                                    <button
+                                      key={t}
+                                      onClick={() => setActiveTag(activeTag === t ? 'all' : t)}
+                                      className={clsx(
+                                        'rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-opacity hover:opacity-80',
+                                        tagBadgeColor(t),
+                                      )}
+                                    >
+                                      #{t}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Quick Copy / Use / Delete */}
+                            <div className="flex shrink-0 items-center gap-1">
+                              <button
+                                onClick={() => handleCopy(q.id, q.question)}
+                                title="Хуулах"
+                                className="inline-flex h-7 items-center gap-1 rounded-full border border-line bg-white px-2.5 text-[11px] font-medium text-ink-2 hover:border-brand hover:text-brand"
+                              >
+                                {copiedId === q.id ? <Check className="h-3 w-3 text-brand" /> : <Copy className="h-3 w-3" />}
+                                <span>{copiedId === q.id ? 'Хуулагдлаа' : 'Хуулах'}</span>
+                              </button>
+
+                              <button
+                                onClick={() =>
+                                  onApply(
+                                    targetContactId,
+                                    `Энэ харилцагчид дараах асуултыг ашиглая: "${q.question}". Харилцагчийн нөхцөлд тааруулан хэрхэн асуух болон дараагийн алхмыг зөвлөөрэй.`,
+                                  )
+                                }
+                                title="Зөвлөх чатад ашиглах"
+                                className="inline-flex h-7 items-center gap-1 rounded-full bg-brand px-2.5 text-[11px] font-medium text-white hover:bg-brand-600"
+                              >
+                                <Sparkles className="h-3 w-3 text-secondary" />
+                                <span>Чат руу</span>
+                              </button>
+
+                              {canDeleteQuestion && (
+                                <button
+                                  onClick={() => handleDeleteQuestion(q.id)}
+                                  title="Устгах"
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-full text-ink-3 hover:bg-rose-50 hover:text-rose-600"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Question Body */}
+                          <p className="mt-2.5 whitespace-pre-wrap text-[14.5px] leading-relaxed text-ink">{q.question}</p>
+                          {q.context && <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-2">{q.context}</p>}
+
+                          {/* Threads-Style Social Actions: Like / Unlike / Comment */}
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <button
+                              onClick={(e) => handleVote(q.id, 'like', e)}
+                              className={clsx(
+                                'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                                q.userVote === 'like'
+                                  ? 'border-brand bg-brand text-white'
+                                  : 'border-line bg-white text-ink-2 hover:border-brand hover:text-brand',
+                              )}
+                            >
+                              <ThumbsUp className={clsx('h-3.5 w-3.5', q.userVote === 'like' && 'fill-current')} />
+                              <span>{q.votesCount}</span>
+                            </button>
+
+                            <button
+                              onClick={(e) => handleVote(q.id, 'unlike', e)}
+                              className={clsx(
+                                'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                                q.userVote === 'unlike'
+                                  ? 'border-rose-500 bg-rose-600 text-white'
+                                  : 'border-line bg-white text-ink-2 hover:border-rose-400 hover:text-rose-600',
+                              )}
+                            >
+                              <ThumbsDown className={clsx('h-3.5 w-3.5', q.userVote === 'unlike' && 'fill-current')} />
+                              <span>{q.dislikesCount}</span>
+                            </button>
+
+                            <button
+                              onClick={() => toggleComments(q.id)}
+                              className={clsx(
+                                'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                                isCommentsOpen
+                                  ? 'border-ink bg-ink text-white'
+                                  : 'border-line bg-white text-ink-2 hover:bg-hover hover:text-ink',
+                              )}
+                            >
+                              <MessageCircle className="h-3.5 w-3.5" />
+                              <span>{q.commentsCount}</span>
+                            </button>
+
+                            {/* Pro-only quick insight toggle */}
+                            {isPro && (q.aiAnalysis || q.personaScores?.length) && (
+                              <button
+                                onClick={() => setExpandedProInsight((prev) => ({ ...prev, [q.id]: !isProOpen }))}
+                                className="ml-auto inline-flex items-center gap-1 rounded-full bg-brand-soft px-2.5 py-1 text-[11px] font-semibold text-brand hover:bg-secondary-soft"
+                              >
+                                <Crown className="h-3 w-3" />
+                                <span>Pro Дүгнэлт</span>
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Хэн Like / Unlike хийснийг харуулах хэсэг */}
+                          {hasReactions && (
+                            <div className="mt-2">
+                              <button
+                                onClick={() => setExpandedVoters((prev) => ({ ...prev, [q.id]: !isVotersOpen }))}
+                                className="flex flex-wrap items-center gap-2 text-[12px] text-ink-2 hover:text-ink"
+                              >
+                                {likedNames.length > 0 && (
+                                  <span className="inline-flex items-center gap-1">
+                                    <span className="flex -space-x-1.5">
+                                      {likedNames.slice(0, 3).map((v) => (
+                                        <Avatar key={v.userId} name={v.name} image={v.image} size={18} className="ring-1 ring-white" />
+                                      ))}
+                                    </span>
+                                    <span>
+                                      👍 {likedNames.slice(0, 2).map((v) => v.name).join(', ')}
+                                      {likedNames.length > 2 ? ` болон бусад ${likedNames.length - 2}` : ''}
+                                    </span>
+                                  </span>
+                                )}
+                                {unlikedNames.length > 0 && (
+                                  <span className="inline-flex items-center gap-1 text-rose-700/80">
+                                    <span>
+                                      · 👎 {unlikedNames.slice(0, 2).map((v) => v.name).join(', ')}
+                                      {unlikedNames.length > 2 ? ` +${unlikedNames.length - 2}` : ''}
+                                    </span>
+                                  </span>
+                                )}
+                              </button>
+
+                              {isVotersOpen && (
+                                <div className="mt-2 grid gap-2 rounded-xl border border-line bg-canvas/50 p-3 text-xs sm:grid-cols-2">
+                                  <div>
+                                    <p className="mb-1.5 font-semibold text-brand">👍 Ажилласан ({likedNames.length})</p>
+                                    {likedNames.length === 0 ? (
+                                      <p className="text-[11px] text-ink-3">Одоогоор алга</p>
+                                    ) : (
+                                      <div className="space-y-1">
+                                        {likedNames.map((v) => (
+                                          <div key={v.userId} className="flex items-center gap-1.5">
+                                            <Avatar name={v.name} image={v.image} size={18} />
+                                            <span className="text-ink">{v.name}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div>
+                                    <p className="mb-1.5 font-semibold text-rose-600">👎 Ажиллаагүй ({unlikedNames.length})</p>
+                                    {unlikedNames.length === 0 ? (
+                                      <p className="text-[11px] text-ink-3">Одоогоор алга</p>
+                                    ) : (
+                                      <div className="space-y-1">
+                                        {unlikedNames.map((v) => (
+                                          <div key={v.userId} className="flex items-center gap-1.5">
+                                            <Avatar name={v.name} image={v.image} size={18} />
+                                            <span className="text-ink">{v.name}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Pro Insight Drawer (Зөвхөн Pro багцад) */}
+                          {isPro && isProOpen && (
+                            <div className="mt-3 space-y-2.5 rounded-xl border border-brand/20 bg-brand-soft/40 p-3.5 text-xs">
+                              {q.aiAnalysis && <p className="leading-relaxed text-ink">{q.aiAnalysis}</p>}
+                              {q.personaScores && q.personaScores.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {q.personaScores.map((p) => (
+                                    <span key={p.personaId} className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-0.5 text-[11px] font-semibold text-brand">
+                                      <UserCheck className="h-3 w-3" />
+                                      {p.personaName.split('(')[0].trim()} · {p.score}%
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              {q.refinedVariant && q.refinedVariant !== q.question && (
+                                <p className="rounded-lg bg-white p-2.5 text-xs text-ink">
+                                  <strong className="text-brand">Сайжруулсан хувилбар:</strong> {q.refinedVariant}
+                                </p>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Threads-Style Comments / Replies */}
+                          {isCommentsOpen && (
+                            <div className="mt-3.5 space-y-3 border-t border-line/70 pt-3">
+                              {loadingComments[q.id] ? (
+                                <p className="text-xs text-ink-3">Сэтгэгдлүүдийг уншиж байна...</p>
+                              ) : comments.length === 0 ? (
+                                <p className="text-xs text-ink-3">Одоогоор сэтгэгдэл бичигдээгүй байна. Анхны туршлагаа бичээрэй!</p>
+                              ) : (
+                                <div className="space-y-3">
+                                  {comments.map((c) => {
+                                    const canDeleteComment = c.userId === currentUserId;
+                                    return (
+                                      <div key={c.id} className="flex gap-2.5">
+                                        <Avatar name={c.authorName} image={c.authorImage} size={26} />
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-2">
+                                              <span className="text-[12.5px] font-semibold text-ink">{c.authorName}</span>
+                                              <span className="text-[11px] text-ink-3">{formatShortTime(c.createdAt)}</span>
+                                            </div>
+                                            {canDeleteComment && (
+                                              <button
+                                                onClick={() => handleDeleteComment(q.id, c.id)}
+                                                title="Сэтгэгдэл устгах"
+                                                className="rounded p-0.5 text-ink-3 hover:text-rose-600"
+                                              >
+                                                <Trash2 className="h-3 w-3" />
+                                              </button>
+                                            )}
+                                          </div>
+                                          <p className="mt-0.5 whitespace-pre-wrap text-[13px] leading-relaxed text-ink-2">{c.content}</p>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
+                              {/* Inline Reply Input */}
+                              <div className="flex items-center gap-2 pt-1">
+                                <Avatar name={currentUser.name || currentUser.email} image={currentUser.image} size={26} />
+                                <input
+                                  maxLength={2000}
+                                  value={newCommentText[q.id] || ''}
+                                  onChange={(e) => setNewCommentText((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                      e.preventDefault();
+                                      void handleAddComment(q.id);
+                                    }
+                                  }}
+                                  placeholder="Энэ асуултыг асуухад хэрхэн ажилласан туршлагаа бичнэ үү..."
+                                  className="h-9 min-w-0 flex-1 rounded-full border border-line bg-canvas/50 px-3.5 text-xs text-ink outline-none placeholder:text-ink-3 focus:border-brand focus:bg-white"
+                                />
+                                <button
+                                  disabled={!newCommentText[q.id]?.trim() || submittingComment[q.id]}
+                                  onClick={() => handleAddComment(q.id)}
+                                  aria-label="Илгээх"
+                                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-white hover:bg-brand-600 disabled:bg-[#d5d8de]"
+                                >
+                                  <Send className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
             )}
           </div>
         )}
 
-        {/* ================= TAB 2: AI CLUSTERS & INSIGHTS ================= */}
-        {subTab === 'clusters' && (
-          <div className="mx-auto max-w-[860px] space-y-5">
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand/20 bg-gradient-to-r from-brand-soft/70 to-white p-5">
-              <div className="space-y-1">
-                <h3 className="flex items-center gap-2 text-sm font-bold text-ink">
-                  <Brain className="h-4 w-4 text-brand" />
-                  Вектор Кластер, Ажилласан Байдал & Persona Хамаарлын Тайлан
-                </h3>
-                <p className="text-xs text-ink-2">
-                  Асуулт бүр + борлуулагчдын коммент вектор хэлбэрт шилжиж ижил утгаараа кластер болон, аль Persona дээр илүү амжилттайг тооцоолно.
+        {/* ================= PRO TAB 2: БҮЛЭГ & ДҮГНЭЛТ ================= */}
+        {isPro && subTab === 'clusters' && (
+          <div className="mx-auto max-w-[780px] space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand/20 bg-white p-5">
+              <div>
+                <h3 className="text-sm font-bold text-ink">Асуултын бүлгүүд ба бодит үр дүнгийн дүгнэлт</h3>
+                <p className="mt-1 text-xs text-ink-2">
+                  Асуултуудыг ижил зорилгоор бүлэглэн, ямар харилцагч дээр илүү үр дүнтэй ажиллаж байгааг дүгнэнэ.
                 </p>
               </div>
               <button
                 onClick={handleRunAnalyze}
                 disabled={analyzing}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-brand px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-brand-600 disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 rounded-full bg-brand px-4 py-2 text-xs font-semibold text-white hover:bg-brand-600 disabled:opacity-60"
               >
                 <RefreshCw className={clsx('h-3.5 w-3.5', analyzing && 'animate-spin')} />
-                <span>{analyzing ? 'Боловсруулж байна...' : 'Дахин шинжлэх'}</span>
+                <span>{analyzing ? 'Шинжилж байна...' : 'Шинжилгээ шинэчлэх'}</span>
               </button>
             </div>
 
             {loadingClusters || analyzing ? (
-              <div className="flex flex-col items-center justify-center py-20 text-ink-3">
-                <div className="h-8 w-8 animate-spin rounded-full border-2 border-brand border-t-transparent" />
-                <p className="mt-3 text-xs">Асуултуудыг векторжуулж, кластер болон Persona дүгнэлт боловсруулж байна...</p>
-              </div>
-            ) : filteredClusters.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-line bg-white p-12 text-center">
-                <Layers className="mx-auto h-10 w-10 text-ink-3" />
-                <p className="mt-3 text-sm font-bold text-ink">Кластер олдсонгүй</p>
-                <button onClick={handleRunAnalyze} className="mt-4 rounded-xl bg-brand px-4 py-2 text-xs font-semibold text-white">
-                  AI Кластер үүсгэх
-                </button>
+              <div className="flex flex-col items-center justify-center py-16 text-ink-3">
+                <div className="h-7 w-7 animate-spin rounded-full border-2 border-brand border-t-transparent" />
+                <p className="mt-3 text-xs">Асуултуудын бүлэг болон дүгнэлтийг бэлтгэж байна...</p>
               </div>
             ) : (
               filteredClusters.map((c) => {
                 const members = questions.filter((q) => q.clusterId === c.id);
                 const nextCluster = c.nextClusterId ? clusterById.get(c.nextClusterId) : null;
-                const isHighlighted = highlightedClusterId === c.id;
-
                 return (
                   <div
                     key={c.id}
                     className={clsx(
-                      'space-y-4 rounded-2xl border bg-white p-5 shadow-sm transition-all',
-                      isHighlighted ? 'border-brand ring-2 ring-brand/20' : 'border-line',
+                      'space-y-4 rounded-2xl border bg-white p-5',
+                      highlightedClusterId === c.id ? 'border-brand ring-2 ring-brand/20' : 'border-line',
                     )}
                   >
-                    {/* Cluster Header */}
                     <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line pb-3">
                       <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="rounded-lg bg-brand px-2.5 py-0.5 text-[11px] font-bold text-secondary">
-                            {c.questionCount} асуултын кластер
-                          </span>
-                          <span className="rounded-lg bg-panel px-2.5 py-0.5 text-[11px] font-semibold text-ink-2">
-                            Дундаж {c.avgVotes} vote
-                          </span>
-                        </div>
+                        <span className="rounded-full bg-brand-soft px-2.5 py-0.5 text-[11px] font-semibold text-brand">
+                          {c.questionCount} асуулт
+                        </span>
                         <h3 className="mt-2 text-base font-bold text-ink">{c.name}</h3>
-                        <p className="mt-1 text-xs leading-relaxed text-ink-2">{c.summary}</p>
+                        <p className="mt-1 text-xs text-ink-2">{c.summary}</p>
                       </div>
-
                       <button
                         onClick={() => openSynthesizerFor({ clusterId: c.id })}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-brand bg-brand-soft px-3 py-1.5 text-xs font-semibold text-brand hover:bg-secondary-soft"
+                        className="inline-flex items-center gap-1.5 rounded-full border border-brand px-3 py-1.5 text-xs font-semibold text-brand hover:bg-brand-soft"
                       >
                         <Wand2 className="h-3.5 w-3.5" />
-                        <span>Persona-д асуулт боловсруулах</span>
+                        <span>Асуулт зохиох</span>
                       </button>
                     </div>
 
-                    {/* Field Performance Verdict */}
-                    <div className="rounded-xl border border-line bg-panel/60 p-3.5">
-                      <p className="text-[11px] font-bold uppercase tracking-wide text-brand">📊 Бодит ажилласан байдлын дүгнэлт</p>
-                      <p className="mt-1 text-xs leading-relaxed text-ink">{c.performanceVerdict}</p>
+                    <div className="rounded-xl bg-canvas/60 p-3.5 text-xs">
+                      <p className="font-bold text-brand">Бодит үр дүн:</p>
+                      <p className="mt-1 text-ink">{c.performanceVerdict}</p>
                     </div>
 
-                    {/* Best Personas Matrix */}
-                    <div>
-                      <p className="mb-2 text-xs font-bold text-ink">👤 Энэ кластер хамгийн сайн ажиллах харилцагчийн Persona:</p>
-                      <div className="grid gap-2.5 sm:grid-cols-3">
-                        {(c.bestPersonas || []).map((p) => (
-                          <div key={p.personaId} className="rounded-xl border border-line bg-white p-3">
-                            <div className="flex items-center justify-between gap-2 text-xs font-bold text-ink">
-                              <span className="truncate">{p.personaName.split('(')[0].trim()}</span>
-                              <span className="rounded-md bg-secondary-soft px-1.5 py-0.5 text-lime-dark">{p.score}%</span>
-                            </div>
-                            <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-panel">
-                              <div className="h-full bg-brand" style={{ width: `${p.score}%` }} />
-                            </div>
-                            <p className="mt-2 text-[11px] leading-relaxed text-ink-2">{p.reason}</p>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {(c.bestPersonas || []).map((p) => (
+                        <div key={p.personaId} className="rounded-xl border border-line p-3 text-xs">
+                          <div className="flex items-center justify-between font-bold text-ink">
+                            <span className="truncate">{p.personaName.split('(')[0].trim()}</span>
+                            <span className="text-brand">{p.score}%</span>
                           </div>
-                        ))}
-                      </div>
+                          <p className="mt-1 text-[11px] text-ink-2">{p.reason}</p>
+                        </div>
+                      ))}
                     </div>
 
-                    {/* AI Synthesized Master Question */}
-                    <div className="rounded-xl border border-brand/30 bg-brand-soft/40 p-4 space-y-2">
+                    <div className="rounded-xl border border-brand/25 bg-brand-soft/40 p-4 space-y-2">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="flex items-center gap-1.5 text-xs font-bold text-brand">
-                          <Sparkles className="h-4 w-4" />
-                          AI Боловсруулсан илүү хүчтэй асуулт
-                        </span>
-                        <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-brand">✨ Сайжруулсан хувилбар</span>
+                        <div className="flex gap-1.5">
                           <button
                             onClick={() => handleCopy(`cl-${c.id}`, c.refinedQuestion)}
-                            className="inline-flex items-center gap-1 rounded-lg border border-line bg-white px-2.5 py-1 text-[11px] font-medium text-ink-2 hover:border-brand hover:text-brand"
+                            className="rounded-full border border-line bg-white px-2.5 py-1 text-[11px] font-medium text-ink-2 hover:text-ink"
                           >
-                            {copiedId === `cl-${c.id}` ? <Check className="h-3 w-3 text-brand" /> : <Copy className="h-3 w-3" />}
-                            <span>{copiedId === `cl-${c.id}` ? 'Хуулагдлаа' : 'Хуулах'}</span>
+                            {copiedId === `cl-${c.id}` ? 'Хуулагдлаа' : 'Хуулах'}
                           </button>
                           <button
                             disabled={publishingSynth}
                             onClick={() =>
                               publishQuestionToBank({
-                                title: `${c.name} — AI Оновчилсон`,
+                                title: c.name,
                                 question: c.refinedQuestion,
-                                category: members[0]?.category || 'discovery',
+                                tags: members[0]?.tags || ['хаалт'],
                                 context: c.refinedRationale,
                               })
                             }
-                            className="inline-flex items-center gap-1 rounded-lg bg-brand px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-brand-600 disabled:opacity-50"
+                            className="rounded-full bg-brand px-3 py-1 text-[11px] font-semibold text-white hover:bg-brand-600"
                           >
-                            <Plus className="h-3 w-3" />
-                            <span>Санд нэмэх</span>
-                          </button>
-                          <button
-                            onClick={() =>
-                              onApply(
-                                targetContactId,
-                                `Энэ харилцагчид "${c.name}" кластерийн AI оновчилсон асуултыг ашиглая: ${c.refinedQuestion}. Түүний нөхцөлд тохируулан ярианы скрипт гаргаж өг.`,
-                              )
-                            }
-                            className="inline-flex items-center gap-1 rounded-lg bg-ink px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-ink-2"
-                          >
-                            Чатад ашиглах
+                            Санд нэмэх
                           </button>
                         </div>
                       </div>
-                      <p className="font-serif text-[14px] font-semibold italic leading-relaxed text-ink">{c.refinedQuestion}</p>
-                      <p className="text-[11px] text-ink-2">
-                        <strong>Яагаад илүү вэ:</strong> {c.refinedRationale}
-                      </p>
+                      <p className="text-sm font-medium text-ink">{c.refinedQuestion}</p>
+                      <p className="text-[11px] text-ink-2">{c.refinedRationale}</p>
                     </div>
 
-                    {/* Member Questions & Transition Link */}
-                    <div className="grid gap-3 pt-1 md:grid-cols-2">
-                      <div className="rounded-xl border border-line p-3">
-                        <p className="mb-2 text-[11px] font-bold uppercase text-ink-3">Кластерт багтсан асуултууд ({members.length})</p>
-                        <ul className="space-y-1.5">
-                          {members.map((m) => (
-                            <li key={m.id} className="flex items-center justify-between gap-2 text-xs">
-                              <button
-                                onClick={() => {
-                                  setSubTab('feed');
-                                  setExpandedAI((prev) => ({ ...prev, [m.id]: true }));
-                                }}
-                                className="truncate text-left font-medium text-ink hover:text-brand hover:underline"
-                              >
-                                • {m.title}
-                              </button>
-                              <span className="shrink-0 rounded bg-panel px-1.5 py-0.5 text-[11px] font-semibold text-brand">
-                                {m.votesCount}▲
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      {nextCluster && (
-                        <div className="rounded-xl border border-line bg-secondary-soft/30 p-3">
-                          <p className="mb-1 flex items-center gap-1 text-[11px] font-bold uppercase text-lime-dark">
-                            <GitBranch className="h-3 w-3" />
-                            Дараагийн шатны хамаарал (Transition Flow)
-                          </p>
+                    {nextCluster && (
+                      <div className="flex items-center justify-between rounded-xl border border-line px-3.5 py-2.5 text-xs">
+                        <div>
+                          <span className="text-ink-3">Дараагийн шат: </span>
                           <button
                             onClick={() => setHighlightedClusterId(nextCluster.id)}
-                            className="flex items-center gap-1 text-xs font-bold text-brand hover:underline"
+                            className="inline-flex items-center gap-1 font-bold text-brand hover:underline"
                           >
-                            <span>Шилжих кластер: {nextCluster.name}</span>
-                            <ArrowRight className="h-3.5 w-3.5" />
+                            {nextCluster.name} <ArrowRight className="h-3.5 w-3.5" />
                           </button>
-                          {c.nextClusterReason && <p className="mt-1 text-[11px] leading-relaxed text-ink-2">{c.nextClusterReason}</p>}
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </div>
                 );
               })
@@ -1116,53 +1223,52 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, onC
           </div>
         )}
 
-        {/* ================= TAB 3: PERSONA QUESTION SYNTHESIZER ================= */}
-        {subTab === 'synthesizer' && (
-          <div className="mx-auto max-w-[820px] space-y-5">
-            <div className="rounded-2xl border border-line bg-white p-5 shadow-sm space-y-4">
+        {/* ================= PRO TAB 3: АСУУЛТ ЗОХИОХ ================= */}
+        {isPro && subTab === 'synthesizer' && (
+          <div className="mx-auto max-w-[740px] space-y-5">
+            <div className="space-y-4 rounded-2xl border border-line bg-white p-5">
               <div>
                 <h3 className="flex items-center gap-2 text-base font-bold text-ink">
                   <Wand2 className="h-5 w-5 text-brand" />
-                  Persona-д Тааруулсан Шилдэг Асуулт Боловсруулагч
+                  Харилцагчийн төрөлд тохирсон асуулт зохиох
                 </h3>
                 <p className="mt-1 text-xs text-ink-2">
-                  Асуултын банкны кластер, бодит туршлагын сэтгэгдлүүдийг тодорхой харилцагчийн Persona-тай хослуулан хамгийн өндөр үр дүнтэй шинэ асуулт боловсруулна.
+                  Асуултын сангийн туршлага дээр тулгуурлан сонгосон харилцагчид яг таарах асуулт боловсруулна.
                 </p>
               </div>
 
               <form onSubmit={(e) => handleSynthesize(e)} className="space-y-3.5">
-                {/* Target mode toggle */}
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={() => setSynthMode('persona')}
                     className={clsx(
-                      'rounded-xl border px-3.5 py-2 text-xs font-semibold transition-colors',
+                      'rounded-full border px-3.5 py-1.5 text-xs font-semibold',
                       synthMode === 'persona' ? 'border-brand bg-brand text-white' : 'border-line bg-white text-ink-2',
                     )}
                   >
-                    1. Ерөнхий Persona сонгох
+                    Харилцагчийн төрөл
                   </button>
                   <button
                     type="button"
                     onClick={() => setSynthMode('contact')}
                     className={clsx(
-                      'rounded-xl border px-3.5 py-2 text-xs font-semibold transition-colors',
+                      'rounded-full border px-3.5 py-1.5 text-xs font-semibold',
                       synthMode === 'contact' ? 'border-brand bg-brand text-white' : 'border-line bg-white text-ink-2',
                     )}
                   >
-                    2. Миний бодит Харилцагч (CRM)
+                    Миний харилцагч
                   </button>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   {synthMode === 'persona' ? (
                     <div>
-                      <label className="mb-1 block text-xs font-semibold text-ink">Зорилтот Persona</label>
+                      <label className="mb-1 block text-xs font-semibold text-ink">Харилцагчийн төрөл</label>
                       <select
                         value={synthPersona}
                         onChange={(e) => setSynthPersona(e.target.value)}
-                        className="w-full rounded-xl border border-line bg-white p-2.5 text-xs text-ink outline-none focus:border-brand"
+                        className="w-full rounded-xl border border-line bg-white p-2.5 text-xs outline-none focus:border-brand"
                       >
                         {PERSONA_OPTIONS.map((p) => (
                           <option key={p} value={p}>
@@ -1173,281 +1279,109 @@ export function QuestionsView({ query, contacts, selectedContactId, onApply, onC
                     </div>
                   ) : (
                     <div>
-                      <label className="mb-1 block text-xs font-semibold text-ink">CRM Харилцагч сонгох</label>
-                      {contacts.length === 0 ? (
-                        <p className="rounded-xl border border-dashed border-line p-2.5 text-xs text-ink-3">Харилцагч бүртгэгдээгүй байна.</p>
-                      ) : (
-                        <select
-                          value={synthContactId}
-                          onChange={(e) => setSynthContactId(e.target.value)}
-                          className="w-full rounded-xl border border-line bg-white p-2.5 text-xs text-ink outline-none focus:border-brand"
-                        >
-                          {contacts.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.fullName}
-                              {c.company ? ` — ${c.company}` : ''}
-                            </option>
-                          ))}
-                        </select>
-                      )}
+                      <label className="mb-1 block text-xs font-semibold text-ink">Харилцагч сонгох</label>
+                      <select
+                        value={synthContactId}
+                        onChange={(e) => setSynthContactId(e.target.value)}
+                        className="w-full rounded-xl border border-line bg-white p-2.5 text-xs outline-none focus:border-brand"
+                      >
+                        {contacts.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.fullName}
+                            {c.company ? ` — ${c.company}` : ''}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   )}
 
                   <div>
-                    <label className="mb-1 block text-xs font-semibold text-ink">Тулах кластер (Сонголтоор)</label>
+                    <label className="mb-1 block text-xs font-semibold text-ink">Бүлэг (сонголтоор)</label>
                     <select
                       value={synthClusterId}
                       onChange={(e) => setSynthClusterId(e.target.value)}
-                      className="w-full rounded-xl border border-line bg-white p-2.5 text-xs text-ink outline-none focus:border-brand"
+                      className="w-full rounded-xl border border-line bg-white p-2.5 text-xs outline-none focus:border-brand"
                     >
-                      <option value="">Бүх сангаас ерөнхий оновчлол</option>
+                      <option value="">Ерөнхий</option>
                       {clusters.map((c) => (
                         <option key={c.id} value={c.id}>
-                          {c.name} ({c.questionCount} асуулт)
+                          {c.name}
                         </option>
                       ))}
                     </select>
                   </div>
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-1 block text-xs font-semibold text-ink">Эх асуулт сонгох (Сонголтоор)</label>
-                    <select
-                      value={synthQuestionId}
-                      onChange={(e) => setSynthQuestionId(e.target.value)}
-                      className="w-full rounded-xl border border-line bg-white p-2.5 text-xs text-ink outline-none focus:border-brand"
-                    >
-                      <option value="">Шинээр зохиох</option>
-                      {questions.map((q) => (
-                        <option key={q.id} value={q.id}>
-                          {q.title} ({q.votesCount}▲)
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                <input
+                  value={synthGoal}
+                  onChange={(e) => setSynthGoal(e.target.value)}
+                  placeholder="Ярианы зорилго (Ж.нь: Өөр газар даатгалтай гэсэн ч шилжүүлж авах)"
+                  className="w-full rounded-xl border border-line p-2.5 text-xs outline-none focus:border-brand"
+                />
 
-                  <div>
-                    <label className="mb-1 block text-xs font-semibold text-ink">Ярианы онцгой нөхцөл / Зорилго</label>
-                    <input
-                      value={synthGoal}
-                      onChange={(e) => setSynthGoal(e.target.value)}
-                      placeholder="Ж.нь: Өөр газар даатгалтай гэсэн ч 3 өдрийн хурдаар татах"
-                      className="w-full rounded-xl border border-line p-2.5 text-xs text-ink outline-none focus:border-brand"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-1">
+                <div className="flex justify-end">
                   <button
                     type="submit"
                     disabled={synthesizing || (synthMode === 'contact' && contacts.length === 0)}
-                    className="inline-flex items-center gap-2 rounded-xl bg-brand px-5 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-brand-600 disabled:opacity-50"
+                    className="inline-flex items-center gap-2 rounded-full bg-brand px-5 py-2 text-xs font-bold text-white hover:bg-brand-600 disabled:opacity-50"
                   >
                     <Wand2 className={clsx('h-4 w-4 text-secondary', synthesizing && 'animate-spin')} />
-                    <span>{synthesizing ? 'Боловсруулж байна...' : 'Яг тохирсон асуулт боловсруулах'}</span>
+                    <span>{synthesizing ? 'Боловсруулж байна...' : 'Асуулт зохиох'}</span>
                   </button>
                 </div>
               </form>
             </div>
 
             {synthesized && (
-              <div className="space-y-4 rounded-2xl border-2 border-brand/30 bg-white p-6 shadow-md">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-full bg-secondary px-2.5 py-0.5 text-[11px] font-bold text-lime-dark">
-                        {synthesized.targetPersonaName}
-                      </span>
-                      <span className="rounded-full border border-line bg-panel px-2.5 py-0.5 text-[11px] font-semibold text-ink-2">
-                        {(CATEGORY_LABELS[synthesized.category] || CATEGORY_LABELS.discovery).label}
-                      </span>
-                    </div>
-                    <h4 className="mt-2 text-base font-bold text-ink">{synthesized.title}</h4>
-                  </div>
-                  <span className="text-[11px] text-ink-3">Загвар: {synthesized.modelUsed}</span>
+              <div className="space-y-4 rounded-2xl border border-brand/30 bg-white p-5">
+                <div className="flex items-center justify-between border-b border-line pb-2.5">
+                  <span className="rounded-full bg-secondary px-2.5 py-0.5 text-[11px] font-bold text-lime-dark">
+                    {synthesized.targetPersonaName}
+                  </span>
                 </div>
-
-                <div className="rounded-xl border border-brand/30 bg-brand-soft/40 p-4">
-                  <p className="mb-1 text-[11px] font-bold uppercase text-brand">🎯 Хэлэх оновчилсон асуулт</p>
-                  <p className="font-serif text-[15px] font-semibold italic leading-relaxed text-ink">{synthesized.question}</p>
+                <p className="text-[15px] font-semibold leading-relaxed text-ink">{synthesized.question}</p>
+                <p className="text-xs text-ink-2">{synthesized.rationale}</p>
+                <div className="rounded-xl bg-canvas/60 p-3 text-xs">
+                  <p className="font-semibold text-brand">Дараагийн асуулт:</p>
+                  <p className="mt-0.5 text-ink">{synthesized.followUpQuestion}</p>
                 </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-xl border border-line bg-panel/50 p-3.5">
-                    <p className="text-[11px] font-bold text-brand">🧠 Яагаад энэ асуулт ажиллах вэ?</p>
-                    <p className="mt-1 text-xs leading-relaxed text-ink">{synthesized.rationale}</p>
-                    <p className="mt-2 text-[11px] text-ink-2">{synthesized.context}</p>
-                  </div>
-
-                  <div className="space-y-2 rounded-xl border border-line bg-panel/50 p-3.5">
-                    <div>
-                      <p className="text-[11px] font-bold text-brand">➡️ Дараагийн асуух асуулт</p>
-                      <p className="mt-1 text-xs italic text-ink">{synthesized.followUpQuestion}</p>
-                    </div>
-                    <div className="border-t border-line pt-2">
-                      <p className="text-[11px] font-bold text-amber-700">🛡️ Болзошгүй эсэргүүцэл</p>
-                      <p className="mt-1 text-xs text-ink-2">{synthesized.predictedObjection}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line pt-3">
+                <div className="flex flex-wrap justify-end gap-2">
                   <button
                     onClick={() => handleCopy('synth-q', synthesized.question)}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-line px-3.5 py-2 text-xs font-semibold text-ink-2 hover:border-brand hover:text-brand"
+                    className="rounded-full border border-line px-3.5 py-1.5 text-xs font-medium text-ink-2 hover:text-ink"
                   >
-                    {copiedId === 'synth-q' ? <Check className="h-3.5 w-3.5 text-brand" /> : <Copy className="h-3.5 w-3.5" />}
-                    <span>{copiedId === 'synth-q' ? 'Хуулагдлаа!' : 'Асуулт хуулах'}</span>
+                    {copiedId === 'synth-q' ? 'Хуулагдлаа' : 'Хуулах'}
                   </button>
-
                   <button
                     disabled={publishingSynth}
                     onClick={() =>
                       publishQuestionToBank({
                         title: synthesized.title,
                         question: synthesized.question,
-                        category: synthesized.category,
-                        context: `${synthesized.context} — ${synthesized.rationale}`,
+                        tags: ['олоннийт'],
+                        context: synthesized.rationale,
                       })
                     }
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-brand bg-brand-soft px-3.5 py-2 text-xs font-semibold text-brand hover:bg-secondary-soft disabled:opacity-50"
+                    className="rounded-full border border-brand bg-brand-soft px-3.5 py-1.5 text-xs font-semibold text-brand"
                   >
-                    <Plus className="h-3.5 w-3.5" />
-                    <span>{publishingSynth ? 'Нийтэлж байна...' : 'Асуултын санд нийтлэх'}</span>
+                    Санд нийтлэх
                   </button>
-
                   <button
                     onClick={() =>
                       onApply(
                         synthMode === 'contact' && synthContactId ? synthContactId : targetContactId,
-                        `Би харилцагчид AI-аар боловсруулсан энэ асуултыг ашиглах гэж байна: ${synthesized.question}. Дараагийн алхам нь: ${synthesized.followUpQuestion}. Энэ харилцагчид бүрэн ярианы скрипт болон бүтээгдэхүүний тооцоо гаргаж өг.`,
+                        `Би энэ асуултыг ашиглах гэж байна: ${synthesized.question}. Харилцагчид тохирсон ярианы дарааллыг гаргаж өг.`,
                       )
                     }
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-brand px-4 py-2 text-xs font-semibold text-white hover:bg-brand-600"
+                    className="rounded-full bg-brand px-4 py-1.5 text-xs font-semibold text-white"
                   >
-                    <Sparkles className="h-3.5 w-3.5 text-secondary" />
-                    <span>Коуч чатад ашиглах</span>
+                    Чат руу
                   </button>
                 </div>
               </div>
             )}
           </div>
         )}
-      </div>
-
-      {/* New Question Modal */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-[540px] space-y-4 rounded-2xl bg-white p-6 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-line pb-3">
-              <h3 className="flex items-center gap-2 text-base font-bold text-ink">
-                <Sparkles className="h-4 w-4 text-brand" />
-                Шинэ амжилттай асуулт нийтлэх
-              </h3>
-              <button onClick={() => setModalOpen(false)} className="rounded-lg p-1 text-ink-3 hover:bg-panel hover:text-ink">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateQuestion} className="space-y-3.5">
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-ink">
-                  Асуултын зорилго / Гарчиг <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  required
-                  minLength={3}
-                  maxLength={200}
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  placeholder="Жишээ: Машины үнэлгээ болон өмнөх эвдрэлийг тодруулах"
-                  className="w-full rounded-xl border border-line p-2.5 text-xs text-ink outline-none focus:border-brand"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-ink">
-                  Ангилал <span className="text-rose-500">*</span>
-                </label>
-                <select
-                  value={newCategory}
-                  onChange={(e) => setNewCategory(e.target.value)}
-                  className="w-full rounded-xl border border-line bg-white p-2.5 text-xs text-ink outline-none focus:border-brand"
-                >
-                  <option value="discovery">Хэрэгцээ илрүүлэх (Discovery)</option>
-                  <option value="spin">SPIN аргачлал</option>
-                  <option value="bant">BANT шалгуур (Төсөв, эрх мэдэл)</option>
-                  <option value="objection">Татгалзал давах (Objection Handling)</option>
-                  <option value="closing">Хаалтын асуулт (Closing)</option>
-                  <option value="digital">Дижитал амлалт (3 минутын онлайн)</option>
-                  <option value="renewal">Сунгалт & Retention</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-ink">
-                  Яг асуух үгс (Харилцагчид хэлэх асуулт) <span className="text-rose-500">*</span>
-                </label>
-                <textarea
-                  required
-                  minLength={5}
-                  maxLength={2000}
-                  rows={3}
-                  value={newQuestion}
-                  onChange={(e) => setNewQuestion(e.target.value)}
-                  placeholder="«Та өмнө нь ямар нэг тохиолдлоор нөхөн төлбөр авах гээд салбар дээр очиж хэр их цаг алдаж байсан бэ?»"
-                  className="w-full rounded-xl border border-line p-2.5 font-serif text-xs italic text-ink outline-none focus:border-brand"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-ink">Сэтгэл зүйн зөвлөмж / Хэзээ асуух вэ?</label>
-                <textarea
-                  maxLength={2000}
-                  rows={2}
-                  value={newContext}
-                  onChange={(e) => setNewContext(e.target.value)}
-                  placeholder="Жишээ: Энэ асуултыг ярианы дундуур өрсөлдөгчийг шууд муулахгүйгээр өөрийнх нь өвдөлтийг гаргахад ашиглана."
-                  className="w-full rounded-xl border border-line p-2.5 text-xs text-ink outline-none focus:border-brand"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 border-t border-line pt-2">
-                <button
-                  type="button"
-                  onClick={() => setModalOpen(false)}
-                  className="rounded-xl border border-line px-4 py-2 text-xs font-medium text-ink-2 hover:bg-panel"
-                >
-                  Болих
-                </button>
-                <button
-                  type="submit"
-                  disabled={creating}
-                  className="rounded-xl bg-brand px-4 py-2 text-xs font-semibold text-white hover:bg-brand-600 disabled:opacity-50"
-                >
-                  {creating ? 'Нийтэлж байна...' : 'Нийтлэх (+1 Vote)'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Apply Bar */}
-      <div className="shrink-0 border-t border-line bg-panel px-6 py-3.5">
-        <ApplyBar
-          contacts={contacts}
-          defaultContactId={selectedContactId}
-          label="Сонгосон асуултыг харилцагчийн коучтай холбох"
-          buttonText="Коуч чатад ашиглах"
-          onApply={(cid) =>
-            onApply(
-              cid,
-              `Би энэ харилцагч дээр Асуултын банкны вектор кластерийн шилдэг асуултуудыг хэрэглэх гэж байна. Харилцагчийн Persona-д хамгийн их нийцсэн 2 асуулт болон бүтээгдэхүүний тооцоог бэлдэж өгөөрэй.`,
-            )
-          }
-        />
       </div>
     </div>
   );

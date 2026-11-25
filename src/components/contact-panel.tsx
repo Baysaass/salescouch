@@ -149,7 +149,7 @@ export function ContactPanel({ contact, aiEnabled, onSaved, onDelete }: Props) {
         action={
           <button onClick={genPersona} disabled={generating} className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-brand hover:bg-brand-soft disabled:opacity-60">
             {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            {aiEnabled ? 'AI-аар бөглөх' : 'Автоматаар бөглөх'}
+            Автоматаар бөглөх
           </button>
         }
       >

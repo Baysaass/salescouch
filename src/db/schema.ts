@@ -30,6 +30,7 @@ export const users = pgTable('users', {
   email: text('email').notNull(),
   name: text('name'),
   image: text('image'),
+  plan: text('plan').notNull().default('free'), // 'free' | 'pro'
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -102,11 +103,13 @@ export const questions = pgTable(
     userId: text('user_id').notNull(),
     authorName: text('author_name').notNull(),
     authorImage: text('author_image'),
-    category: text('category').notNull(), // 'discovery' | 'spin' | 'bant' | 'objection' | 'closing' | 'digital' | 'renewal'
+    category: text('category').notNull().default('general'),
+    tags: jsonb('tags').$type<string[]>().notNull().default([]),
     title: text('title').notNull(),
     question: text('question').notNull(),
     context: text('context'),
     votesCount: integer('votes_count').notNull().default(0),
+    dislikesCount: integer('dislikes_count').notNull().default(0),
     embedding: jsonb('embedding').$type<number[] | null>(),
     embeddingModel: text('embedding_model'),
     clusterId: uuid('cluster_id'),
@@ -130,6 +133,9 @@ export const questionVotes = pgTable(
     id: uuid('id').defaultRandom().primaryKey(),
     questionId: uuid('question_id').notNull(),
     userId: text('user_id').notNull(),
+    voteType: text('vote_type').notNull().default('like'), // 'like' | 'unlike'
+    voterName: text('voter_name').notNull().default(''),
+    voterImage: text('voter_image'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [

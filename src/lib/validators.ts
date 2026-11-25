@@ -24,13 +24,18 @@ export const messageInput = z.object({
   skill: z.string().max(64).optional().nullable(),
 });
 
-export const QUESTION_CATEGORIES = ['discovery', 'spin', 'bant', 'objection', 'closing', 'digital', 'renewal'] as const;
+export const QUESTION_CATEGORIES = ['discovery', 'spin', 'bant', 'objection', 'closing', 'digital', 'renewal', 'general'] as const;
 
 export const questionInput = z.object({
-  title: z.string().trim().min(3, 'Гарчиг хамгийн багадаа 3 тэмдэгт байна').max(200),
+  title: z.string().trim().max(200).optional().nullable(),
   question: z.string().trim().min(5, 'Асуулт хамгийн багадаа 5 тэмдэгт байна').max(2000),
-  category: z.enum(QUESTION_CATEGORIES).default('discovery'),
+  category: z.enum(QUESTION_CATEGORIES).optional().default('general'),
+  tags: z.array(z.string().trim().max(45)).max(10).optional().default([]),
   context: z.string().trim().max(2000).optional().nullable(),
+});
+
+export const voteInput = z.object({
+  type: z.enum(['like', 'unlike']).optional().default('like'),
 });
 
 export const questionCommentInput = z.object({

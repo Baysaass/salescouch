@@ -1,18 +1,16 @@
 import { redirect } from 'next/navigation';
-import { auth } from '@/auth';
+import { getSessionUser } from '@/lib/api';
 import { Workspace } from '@/components/workspace';
 
 export const dynamic = 'force-dynamic';
 
 export default async function Home() {
-  const session = await auth();
-  if (!session?.user) redirect('/login');
-  const userId = session.user.id || session.user.email?.toLowerCase() || '';
+  const user = await getSessionUser();
+  if (!user) redirect('/login');
   return (
     <Workspace
-      user={{ id: userId, name: session.user.name ?? '', email: session.user.email ?? '', image: session.user.image ?? null }}
+      user={{ id: user.id, name: user.name, email: user.email, image: user.image, plan: user.plan }}
       aiEnabled={Boolean(process.env.OPENAI_API_KEY)}
-      dbMode={process.env.DATABASE_URL ? 'supabase' : 'local'}
     />
   );
 }

@@ -118,9 +118,8 @@ export async function POST(req: Request, { params }: Ctx) {
               controller.enqueue(encoder.encode(chunk));
             }
           } catch (aiErr) {
-            console.warn('OpenAI алдаа гарсан тул локал коуч руу шилжлээ:', (aiErr as Error).message);
-            const note = `> 💡 *OpenAI API (${(aiErr as Error).message.slice(0, 100)}) саатсан тул локал sales коуч шуурхай хариуллаа.*\n\n`;
-            full = note + localCoach(contact, content, skill, bankQuestions);
+            console.warn('AI stream fallback triggered:', (aiErr as Error).message);
+            full = localCoach(contact, content, skill, bankQuestions);
             for (const chunk of full.match(/[\s\S]{1,60}/g) ?? []) {
               controller.enqueue(encoder.encode(chunk));
               await new Promise((r) => setTimeout(r, 6));

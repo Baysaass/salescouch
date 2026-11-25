@@ -1,5 +1,5 @@
 import 'server-only';
-import { desc, eq, sql } from 'drizzle-orm';
+import { desc, eq, inArray, sql } from 'drizzle-orm';
 import type { getDb } from '@/db';
 import { schema } from '@/db';
 import type { Contact, PersonaMatch, Question, QuestionCluster, QuestionComment } from '@/db/schema';
@@ -323,19 +323,19 @@ function localAnalyze(
 
     return {
       clusterIndex: cIdx,
-      name: members.length > 1 ? `${lead.title.split(':')[0]} (${members.length} асуултын бүлэг)` : lead.title,
-      summary: `Нийт ${members.length} ижил зорилготой асуултаас бүрдэх вектор кластер. Гол чиглэл: ${lead.context || lead.title}`,
-      performanceVerdict: `Нийт ${totalVotes} vote, ${allComments.length} бодит туршлагын сэтгэгдэлтэй.${commentInsight || ' Илүү олон бодит дуудлагын сэтгэгдэл нэмэгдэх тусам үнэлгээ нарийсна.'}`,
+      name: members.length > 1 ? `${lead.title.split(':')[0]} (${members.length} асуулт)` : lead.title,
+      summary: `Ижил зорилготой ${members.length} асуултын бүлэг. Гол санаа: ${lead.context || lead.title}`,
+      performanceVerdict: `Нийт ${totalVotes} дэмжлэг, ${allComments.length} бодит сэтгэгдэлтэй.${commentInsight || ' Борлуулагчид бодит туршлагаа бичих тусам дүгнэлт баяжна.'}`,
       bestPersonas,
       nextClusterIndex: nextIdx,
       nextClusterReason:
         nextIdx !== null
           ? lead.category === 'closing'
-            ? 'Хаалтын дараа харилцагчийн сэтгэл ханамж ба сунгалт/нэмэлт хамгаалалтын яриа руу шилжинэ.'
-            : 'Энэ бүлгийн асуултаар хэрэгцээ/өвдөлтийг гаргасны дараа төлбөрийн линк эсвэл шийдлийн хаалт руу шилжих нь хамгийн үр дүнтэй.'
+            ? 'Хаалтын дараа харилцагчийн сэтгэл ханамж болон сунгалтын яриа руу шилжинэ.'
+            : 'Энэ бүлгийн асуултаар хэрэгцээг гаргасны дараа төлбөрийн холбоос эсвэл шийдлийн хаалт руу шилжихэд илүү үр дүнтэй.'
           : '',
-      refinedQuestion: `«${cleanQ} — Бид танд салбар дээр цаг алдахгүй 3 минутад цахимаар шийдээд өгвөл танд аль хувилбар нь илүү тохирох вэ?»`,
-      refinedRationale: `Хамгийн олон (${lead.votesCount}) vote авсан үндсэн асуултыг Практикалын "3 минутын хурд + сонголтын уян хатан байдал"-тай нэгтгэж боловсруулав.`,
+      refinedQuestion: `«${cleanQ} — Салбарт очихгүйгээр утсаараа 3 минутад шийдэх боломжтой бол танд аль хувилбар нь илүү тохирох вэ?»`,
+      refinedRationale: `Хамгийн олон дэмжлэг авсан асуултыг 3 минутын хурд ба сонголтын уян хатан байдалтай нэгтгэж боловсруулав.`,
     };
   });
 
@@ -749,8 +749,49 @@ export async function retrieveBankIntelligenceForContact(db: DB, c: Contact, use
   }
 }
 
-/** Асуултын санг хоосон үед үндсэн батлагдсан асуултуудаар идемпотент байдлаар дүүргэх */
+let mockCleaned = false;
+
+/** Асуултын санг хоосон үед жишээ асуултуудаар (0 like/комменттой) дүүргэх ба хуучин mock дата байвал цэвэрлэх */
 export async function ensureQuestionsSeeded(db: DB) {
+  if (!mockCleaned) {
+    mockCleaned = true;
+    try {
+      await db
+        .delete(schema.questionComments)
+        .where(inArray(schema.questionComments.userId, ['system', 'seed-user']));
+
+      const seedIds = DEFAULT_QUESTIONS.map((q) => q.id);
+      const existingSeeds = await db.select().from(schema.questions).where(inArray(schema.questions.id, seedIds));
+      for (const row of existingSeeds) {
+        const def = DEFAULT_QUESTIONS.find((d) => d.id === row.id);
+        if (!def) continue;
+        const voteRows = await db.select({ voteType: schema.questionVotes.voteType }).from(schema.questionVotes).where(eq(schema.questionVotes.questionId, row.id));
+        const realLikes = voteRows.filter((v) => v.voteType !== 'unlike').length;
+        const realUnlikes = voteRows.filter((v) => v.voteType === 'unlike').length;
+        const needsUpdate =
+          row.authorName !== def.authorName ||
+          !Array.isArray(row.tags) ||
+          row.tags.length === 0 ||
+          row.votesCount !== realLikes ||
+          row.dislikesCount !== realUnlikes;
+        if (needsUpdate) {
+          await db
+            .update(schema.questions)
+            .set({
+              authorName: def.authorName,
+              tags: def.tags,
+              votesCount: realLikes,
+              dislikesCount: realUnlikes,
+            })
+            .where(eq(schema.questions.id, row.id));
+        }
+      }
+    } catch (err) {
+      mockCleaned = false;
+      console.warn('Жишээ асуулт цэвэрлэх анхааруулга:', (err as Error).message);
+    }
+  }
+
   const existing = await db.select({ count: sql<number>`count(*)::int` }).from(schema.questions);
   if ((existing[0]?.count ?? 0) > 0) return;
 
@@ -762,32 +803,130 @@ export async function ensureQuestionsSeeded(db: DB) {
         userId: 'system',
         authorName: q.authorName,
         category: q.category,
+        tags: q.tags,
         title: q.title,
         question: q.question,
         context: q.context,
-        votesCount: q.votesCount,
+        votesCount: 0,
+        dislikesCount: 0,
       })),
     )
     .onConflictDoNothing();
+}
 
-  const comments = DEFAULT_QUESTIONS.flatMap((q) =>
-    q.initialComments.map((c) => ({
-      id: c.id,
-      questionId: q.id,
-      userId: 'system',
-      authorName: c.authorName,
-      content: c.content,
-    })),
-  );
-  if (comments.length > 0) {
-    await db.insert(schema.questionComments).values(comments).onConflictDoNothing();
+export interface VoterInfo {
+  userId: string;
+  name: string;
+  image: string | null;
+}
+
+/** Асуултуудыг Like/Unlike жагсаалт болон сэтгэгдлийн тоотой буцаана; includeInsights=true зөвхөн Pro багцад */
+export async function fetchQuestionsFeed(
+  db: DB,
+  userId: string,
+  opts: { tag?: string | null; sort?: string; includeInsights?: boolean } = {},
+) {
+  await ensureQuestionsSeeded(db);
+
+  const sortOrder =
+    opts.sort === 'newest'
+      ? [desc(schema.questions.createdAt)]
+      : [desc(schema.questions.votesCount), desc(schema.questions.createdAt)];
+
+  const rows = await db
+    .select({
+      id: schema.questions.id,
+      userId: schema.questions.userId,
+      authorName: schema.questions.authorName,
+      authorImage: schema.questions.authorImage,
+      category: schema.questions.category,
+      tags: schema.questions.tags,
+      title: schema.questions.title,
+      question: schema.questions.question,
+      context: schema.questions.context,
+      votesCount: schema.questions.votesCount,
+      dislikesCount: schema.questions.dislikesCount,
+      clusterId: schema.questions.clusterId,
+      personaScores: schema.questions.personaScores,
+      aiAnalysis: schema.questions.aiAnalysis,
+      refinedVariant: schema.questions.refinedVariant,
+      relatedQuestionIds: schema.questions.relatedQuestionIds,
+      analyzedAt: schema.questions.analyzedAt,
+      createdAt: schema.questions.createdAt,
+      commentsCount: sql<number>`(select count(*)::int from question_comments qc where qc.question_id = ${schema.questions.id})`,
+    })
+    .from(schema.questions)
+    .orderBy(...sortOrder);
+
+  const allVotes = await db.select().from(schema.questionVotes);
+  const likesByQ = new Map<string, VoterInfo[]>();
+  const unlikesByQ = new Map<string, VoterInfo[]>();
+  const myVoteByQ = new Map<string, 'like' | 'unlike'>();
+
+  for (const v of allVotes) {
+    const info: VoterInfo = {
+      userId: v.userId,
+      name: v.voterName || v.userId.split('@')[0] || 'Хэрэглэгч',
+      image: v.voterImage ?? null,
+    };
+    if (v.voteType === 'unlike') {
+      const arr = unlikesByQ.get(v.questionId) ?? [];
+      arr.push(info);
+      unlikesByQ.set(v.questionId, arr);
+    } else {
+      const arr = likesByQ.get(v.questionId) ?? [];
+      arr.push(info);
+      likesByQ.set(v.questionId, arr);
+    }
+    if (v.userId === userId) {
+      myVoteByQ.set(v.questionId, v.voteType === 'unlike' ? 'unlike' : 'like');
+    }
   }
+
+  const tagFilter = opts.tag?.replace(/^#/, '').trim().toLowerCase();
+  const filtered = tagFilter && tagFilter !== 'all'
+    ? rows.filter((r) => Array.isArray(r.tags) && r.tags.some((t) => t.toLowerCase() === tagFilter))
+    : rows;
+
+  return filtered.map((r) => {
+    const likedBy = likesByQ.get(r.id) ?? [];
+    const unlikedBy = unlikesByQ.get(r.id) ?? [];
+    const base = {
+      id: r.id,
+      userId: r.userId,
+      authorName: r.authorName,
+      authorImage: r.authorImage,
+      category: r.category,
+      tags: Array.isArray(r.tags) ? r.tags : [],
+      title: r.title,
+      question: r.question,
+      context: r.context,
+      votesCount: r.votesCount,
+      dislikesCount: r.dislikesCount,
+      commentsCount: r.commentsCount,
+      userVote: myVoteByQ.get(r.id) ?? null,
+      likedBy,
+      unlikedBy,
+      createdAt: r.createdAt,
+    };
+    if (!opts.includeInsights) return base;
+    return {
+      ...base,
+      clusterId: r.clusterId,
+      personaScores: r.personaScores,
+      aiAnalysis: r.aiAnalysis,
+      refinedVariant: r.refinedVariant,
+      relatedQuestionIds: r.relatedQuestionIds,
+      analyzedAt: r.analyzedAt,
+    };
+  });
 }
 
 /** Шинээр орсон ганц асуултыг тэр дор нь векторжуулан хамгийн ойр кластер ба Persona-тай холбох */
 export async function enrichNewQuestion(db: DB, q: Question) {
   try {
-    const text = `[${q.category}] ${q.title}. ${q.question} ${q.context ?? ''}`;
+    const tagStr = Array.isArray(q.tags) ? q.tags.join(' ') : '';
+    const text = `[${q.category}] ${tagStr} ${q.title}. ${q.question} ${q.context ?? ''}`;
     const { vectors, model } = await embedBatch([text]);
     const vec = vectors[0];
     const personaScores = scorePersonasByRules(text, q.category, q.votesCount);
@@ -813,7 +952,7 @@ export async function enrichNewQuestion(db: DB, q: Question) {
       .map((x) => x.id);
 
     const topP = personaScores[0];
-    const aiAnalysis = `${topP.personaName} төрөлд (${topP.score}%) тохирох шинэ асуулт. AI шинжилгээг дахин ажиллуулбал коммент болон кластертай бүрэн уялдана.`;
+    const aiAnalysis = `${topP.personaName} төрөлд (${topP.score}%) тохирох шинэ асуулт.`;
 
     await db
       .update(schema.questions)
@@ -835,11 +974,11 @@ export async function enrichNewQuestion(db: DB, q: Question) {
         .where(eq(schema.questionClusters.id, bestClusterId));
     }
   } catch (err) {
-    console.warn('Шинэ асуулт векторжуулахад алдаа гарлаа:', (err as Error).message);
+    console.warn('Шинэ асуулт боловсруулахад алдаа гарлаа:', (err as Error).message);
   }
 }
 
-/** Кластер болон асуултуудын бүрэн тайлангийн өгөгдлийг буцаах (хэрэв кластер хоосон бол автоматаар үүсгэнэ) */
+/** Кластер болон асуултуудын бүрэн тайлангийн өгөгдлийг буцаах (Зөвхөн Pro багц) */
 export async function getClustersReport(db: DB, userId: string) {
   await ensureQuestionsSeeded(db);
 
@@ -849,30 +988,7 @@ export async function getClustersReport(db: DB, userId: string) {
     clusters = await db.select().from(schema.questionClusters).orderBy(desc(schema.questionClusters.avgVotes));
   }
 
-  const questions = await db
-    .select({
-      id: schema.questions.id,
-      userId: schema.questions.userId,
-      authorName: schema.questions.authorName,
-      authorImage: schema.questions.authorImage,
-      category: schema.questions.category,
-      title: schema.questions.title,
-      question: schema.questions.question,
-      context: schema.questions.context,
-      votesCount: schema.questions.votesCount,
-      embeddingModel: schema.questions.embeddingModel,
-      clusterId: schema.questions.clusterId,
-      personaScores: schema.questions.personaScores,
-      aiAnalysis: schema.questions.aiAnalysis,
-      refinedVariant: schema.questions.refinedVariant,
-      relatedQuestionIds: schema.questions.relatedQuestionIds,
-      analyzedAt: schema.questions.analyzedAt,
-      createdAt: schema.questions.createdAt,
-      commentsCount: sql<number>`(select count(*)::int from question_comments qc where qc.question_id = ${schema.questions.id})`,
-      userVoted: sql<boolean>`exists(select 1 from question_votes qv where qv.question_id = ${schema.questions.id} and qv.user_id = ${userId})`,
-    })
-    .from(schema.questions)
-    .orderBy(desc(schema.questions.votesCount));
+  const questions = await fetchQuestionsFeed(db, userId, { includeInsights: true });
 
   return {
     clusters: clusters.map((c) => ({

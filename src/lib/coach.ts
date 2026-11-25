@@ -180,8 +180,6 @@ export function localCoach(c: Contact, userMessage: string, skillId?: string | n
   const known = (v?: string | null) => (v && v.trim() ? v : '_тодорхойгүй — тодруулах_');
 
   const parts: string[] = [
-    `> ⚙️ *Локал горим* — \`OPENAI_API_KEY\` тохируулаагүй тул skill загвараар хариуллаа. Түлхүүр нэмбэл AI бүрэн хариулна.`,
-    '',
     `## ${skill.name} — ${c.fullName}${c.company ? ` (${c.company})` : ''}`,
     skill.description,
     '',

@@ -28,20 +28,29 @@ export interface MessageDTO {
   pending?: boolean;
 }
 
+export interface VoterInfoDTO {
+  userId: string;
+  name: string;
+  image: string | null;
+}
+
 export interface QuestionDTO {
   id: string;
   userId: string;
   authorName: string;
   authorImage: string | null;
   category: string;
+  tags: string[];
   title: string;
   question: string;
   context: string | null;
   votesCount: number;
+  dislikesCount: number;
   createdAt: string;
   commentsCount: number;
-  userVoted: boolean;
-  embeddingModel?: string | null;
+  userVote: 'like' | 'unlike' | null;
+  likedBy: VoterInfoDTO[];
+  unlikedBy: VoterInfoDTO[];
   clusterId?: string | null;
   personaScores?: PersonaMatch[];
   aiAnalysis?: string | null;
@@ -74,7 +83,6 @@ export interface SynthesizedQuestionDTO {
   followUpQuestion: string;
   predictedObjection: string;
   targetPersonaName: string;
-  modelUsed: string;
 }
 
 export interface QuestionCommentDTO {

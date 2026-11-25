@@ -4,6 +4,17 @@ import { and, eq } from 'drizzle-orm';
 import { auth } from '@/auth';
 import { getDb, schema } from '@/db';
 
+export type UserPlan = 'free' | 'pro';
+
+function isProByEnv(email?: string | null): boolean {
+  if (!email) return false;
+  const list = (process.env.PRO_EMAILS || '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  return list.includes(email.toLowerCase());
+}
+
 export async function requireUser(): Promise<string | NextResponse> {
   const session = await auth();
   const id = session?.user?.id || session?.user?.email?.toLowerCase();
@@ -15,11 +26,22 @@ export async function getSessionUser() {
   const session = await auth();
   const id = session?.user?.id || session?.user?.email?.toLowerCase();
   if (!id) return null;
+
+  let plan: UserPlan = isProByEnv(session?.user?.email || id) ? 'pro' : 'free';
+  if (plan === 'free') {
+    try {
+      const db = await getDb();
+      const [row] = await db.select({ plan: schema.users.plan }).from(schema.users).where(eq(schema.users.id, id)).limit(1);
+      if (row?.plan === 'pro') plan = 'pro';
+    } catch {}
+  }
+
   return {
     id,
     name: session?.user?.name || session?.user?.email?.split('@')[0] || 'Борлуулагч',
     image: session?.user?.image || null,
     email: session?.user?.email || '',
+    plan,
   };
 }
 

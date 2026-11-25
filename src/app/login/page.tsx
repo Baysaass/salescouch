@@ -47,10 +47,9 @@ export default async function LoginPage() {
           </form>
         )}
 
-        {!googleEnabled && (
+        {!googleEnabled && process.env.NODE_ENV !== 'production' && (
           <p className="mt-6 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
-            Gmail нэвтрэлт идэвхжүүлэхийн тулд <code>.env.local</code> файлд <code>AUTH_GOOGLE_ID</code>,{' '}
-            <code>AUTH_GOOGLE_SECRET</code> оруулна уу (README-г үзнэ үү).
+            Gmail нэвтрэлт тохируулагдаагүй байна. Туршилтын горимоор нэвтэрнэ үү.
           </p>
         )}
 
@@ -62,7 +61,7 @@ export default async function LoginPage() {
               await signIn('dev', { email: fd.get('email'), name: fd.get('name'), redirectTo: '/' });
             }}
           >
-            <p className="text-xs font-medium uppercase tracking-wide text-ink-3">Локал туршилтын нэвтрэлт</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-ink-3">Туршилтын нэвтрэлт</p>
             <input name="name" placeholder="Нэр" className="h-10 w-full rounded-lg border border-line px-3 text-sm outline-none focus:border-brand" />
             <input name="email" type="email" required placeholder="you@gmail.com" className="h-10 w-full rounded-lg border border-line px-3 text-sm outline-none focus:border-brand" />
             <button className="h-10 w-full rounded-lg bg-ink text-sm font-medium text-white hover:bg-black">Үргэлжлүүлэх</button>

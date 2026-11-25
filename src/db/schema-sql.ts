@@ -1,7 +1,6 @@
 // supabase/schema.sql-тэй ижил. Апп эхлэхдээ (IF NOT EXISTS) ажиллуулна.
 export const SCHEMA_SQL = `
 -- InsurTech Sales Coach — Supabase (Postgres) схем
--- Supabase → SQL Editor дээр нэг удаа ажиллуулна (апп өөрөө ч эхний хүсэлтээр үүсгэнэ).
 create extension if not exists pgcrypto;
 
 create table if not exists users (
@@ -9,8 +8,10 @@ create table if not exists users (
   email text not null,
   name text,
   image text,
+  plan text not null default 'free',
   created_at timestamptz not null default now()
 );
+alter table users add column if not exists plan text not null default 'free';
 
 create table if not exists contacts (
   id uuid primary key default gen_random_uuid(),
@@ -45,7 +46,6 @@ create index if not exists messages_contact_idx on messages(contact_id);
 create index if not exists messages_user_idx on messages(user_id);
 create index if not exists messages_created_at_idx on messages(created_at);
 
--- Асуултын кластер ба AI оюун ухааны дүгнэлт
 create table if not exists question_clusters (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -62,17 +62,18 @@ create table if not exists question_clusters (
   updated_at timestamptz not null default now()
 );
 
--- Асуултын банк (Question Bank + Vector & Insights)
 create table if not exists questions (
   id uuid primary key default gen_random_uuid(),
   user_id text not null,
   author_name text not null,
   author_image text,
-  category text not null,
+  category text not null default 'general',
+  tags jsonb not null default '[]'::jsonb,
   title text not null,
   question text not null,
   context text,
   votes_count integer not null default 0,
+  dislikes_count integer not null default 0,
   embedding jsonb,
   embedding_model text,
   cluster_id uuid references question_clusters(id) on delete set null,
@@ -83,6 +84,8 @@ create table if not exists questions (
   analyzed_at timestamptz,
   created_at timestamptz not null default now()
 );
+alter table questions add column if not exists tags jsonb not null default '[]'::jsonb;
+alter table questions add column if not exists dislikes_count integer not null default 0;
 alter table questions add column if not exists embedding jsonb;
 alter table questions add column if not exists embedding_model text;
 alter table questions add column if not exists cluster_id uuid;
@@ -99,8 +102,14 @@ create table if not exists question_votes (
   id uuid primary key default gen_random_uuid(),
   question_id uuid not null references questions(id) on delete cascade,
   user_id text not null,
+  vote_type text not null default 'like',
+  voter_name text not null default '',
+  voter_image text,
   created_at timestamptz not null default now()
 );
+alter table question_votes add column if not exists vote_type text not null default 'like';
+alter table question_votes add column if not exists voter_name text not null default '';
+alter table question_votes add column if not exists voter_image text;
 create unique index if not exists question_votes_uniq_idx on question_votes(question_id, user_id);
 create index if not exists question_votes_question_idx on question_votes(question_id);
 

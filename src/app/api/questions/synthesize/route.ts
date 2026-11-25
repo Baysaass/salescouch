@@ -10,6 +10,9 @@ export const maxDuration = 60;
 export async function POST(req: Request) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: 'Нэвтрэх шаардлагатай' }, { status: 401 });
+  if (user.plan !== 'pro') {
+    return NextResponse.json({ error: 'Энэ боломж зөвхөн Pro багцад нээлттэй' }, { status: 403 });
+  }
 
   const parsed = questionSynthesizeInput.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) {

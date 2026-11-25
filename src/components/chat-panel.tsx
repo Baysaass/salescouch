@@ -161,7 +161,7 @@ export function ChatPanel({ contact, messages, streaming, aiEnabled, onSend, onC
                 </div>
               )}
             </div>
-            <span className="ml-auto text-[11.5px] text-ink-3">{aiEnabled ? 'OpenAI' : 'Локал коуч'}</span>
+            <span className="ml-auto text-[11.5px] text-ink-3">Ухаалаг зөвлөх</span>
             {streaming ? (
               <button
                 type="button"
@@ -188,7 +188,7 @@ export function ChatPanel({ contact, messages, streaming, aiEnabled, onSend, onC
   );
 }
 
-function EmptyChat({ contact, aiEnabled, onPick, disabled }: { contact: ContactDTO; aiEnabled: boolean; onPick: (id: string) => void; disabled: boolean }) {
+function EmptyChat({ contact, onPick, disabled }: { contact: ContactDTO; aiEnabled?: boolean; onPick: (id: string) => void; disabled: boolean }) {
   const cards = ['bant', 'spin', 'aida', 'cold-email', 'objection', 'persona'];
   return (
     <div className="mx-auto flex max-w-[620px] flex-col items-center pt-14 text-center">
@@ -197,10 +197,9 @@ function EmptyChat({ contact, aiEnabled, onPick, disabled }: { contact: ContactD
         alt="Sales Coach"
         className="h-16 w-16 rounded-2xl shadow-md object-cover"
       />
-      <h3 className="mt-3 text-[17px] font-semibold">{contact.fullName}-д зориулсан sales коуч</h3>
+      <h3 className="mt-3 text-[17px] font-semibold">{contact.fullName}-д зориулсан борлуулалтын зөвлөх</h3>
       <p className="mt-1 text-sm text-ink-2">
-        Харилцагчийн мэдээлэл, persona-г уншаад аль аргаар яаж харилцахыг зөвлөнө.
-        {!aiEnabled && ' (OPENAI_API_KEY оруулаагүй тул одоогоор локал загвараар хариулна.)'}
+        Харилцагчийн мэдээлэл, хэрэгцээнд үндэслэн ямар аргаар, юу санал болгохыг зөвлөнө.
       </p>
       <div className="mt-6 grid w-full grid-cols-2 gap-2.5 text-left">
         {cards.map((id) => {

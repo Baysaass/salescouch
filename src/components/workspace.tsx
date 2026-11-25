@@ -15,13 +15,14 @@ import type { ContactDTO, MessageDTO } from './types';
 import { SKILLS, SKILL_MAP } from '@/lib/skills';
 import { PRODUCTS, PRODUCT_MAP } from '@/lib/products';
 
+import type { UserPlan } from '@/lib/api';
+
 interface Props {
-  user: { id?: string; name: string; email: string; image: string | null };
+  user: { id?: string; name: string; email: string; image: string | null; plan: UserPlan };
   aiEnabled: boolean;
-  dbMode: 'supabase' | 'local';
 }
 
-export function Workspace({ user, aiEnabled, dbMode }: Props) {
+export function Workspace({ user, aiEnabled }: Props) {
   const [contacts, setContacts] = useState<ContactDTO[]>([]);
   const [loadingContacts, setLoadingContacts] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -206,7 +207,6 @@ export function Workspace({ user, aiEnabled, dbMode }: Props) {
       <Sidebar
         user={user}
         aiEnabled={aiEnabled}
-        dbMode={dbMode}
         view={view}
         onView={(v) => {
           setView(v);
