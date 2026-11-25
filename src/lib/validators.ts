@@ -27,12 +27,28 @@ export const messageInput = z.object({
 
 export const QUESTION_CATEGORIES = ['discovery', 'spin', 'bant', 'objection', 'closing', 'digital', 'renewal', 'general'] as const;
 
+export const PERSUASION_STYLE_IDS = [
+  'auto',
+  'curiosity',
+  'loss_avoidance',
+  'honesty',
+  'contrast',
+  'speed_ease',
+  'specificity',
+  'reciprocity',
+] as const;
+
+export const COMMENT_OUTCOMES = ['meeting', 'closed', 'rejected', 'insight'] as const;
+
 export const questionInput = z.object({
   title: z.string().trim().max(200).optional().nullable(),
   question: z.string().trim().min(5, 'Асуулт хамгийн багадаа 5 тэмдэгт байна').max(2000),
   category: z.enum(QUESTION_CATEGORIES).optional().default('general'),
   tags: z.array(z.string().trim().max(45)).max(10).optional().default([]),
   context: z.string().trim().max(2000).optional().nullable(),
+  triggerStyle: z.enum(PERSUASION_STYLE_IDS).optional().nullable(),
+  abGroup: z.string().trim().max(80).optional().nullable(),
+  abVariantLabel: z.enum(['A', 'B']).optional().nullable(),
 });
 
 export const voteInput = z.object({
@@ -54,6 +70,7 @@ export const contactShareInput = z.object({
 
 export const questionCommentInput = z.object({
   content: z.string().trim().min(1, 'Сэтгэгдэл хоосон байна').max(2000),
+  outcome: z.enum(COMMENT_OUTCOMES).optional().nullable(),
 });
 
 export const questionSynthesizeInput = z.object({
@@ -62,6 +79,9 @@ export const questionSynthesizeInput = z.object({
   contactId: z.string().uuid().optional().nullable(),
   personaName: z.string().trim().max(200).optional().nullable(),
   goal: z.string().trim().max(500).optional().nullable(),
+  triggerStyle: z.enum(PERSUASION_STYLE_IDS).optional().nullable(),
+  abTestMode: z.boolean().optional().default(false),
+  abCompareStyle: z.enum(PERSUASION_STYLE_IDS).optional().nullable(),
 });
 
 export function clean(o?: Record<string, string>) {

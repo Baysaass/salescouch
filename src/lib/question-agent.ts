@@ -5,6 +5,13 @@ import { schema } from '@/db';
 import type { Contact, PersonaMatch, Question, QuestionCluster, QuestionComment } from '@/db/schema';
 import { getProUserIds } from './api';
 import { DEFAULT_QUESTIONS } from './default-questions';
+import {
+  checkCopyGuardrails,
+  ETHICAL_COPY_GUARDRAILS,
+  PERSUASION_STYLE_MAP,
+  type GuardrailWarning,
+  type PersuasionStyleId,
+} from './persuasion-frameworks';
 
 const aiEnabled = () => Boolean(process.env.OPENAI_API_KEY);
 
@@ -619,7 +626,92 @@ export interface SynthesizedQuestionResult {
   followUpQuestion: string;
   predictedObjection: string;
   targetPersonaName: string;
+  triggerStyle: PersuasionStyleId;
+  triggerLabel: string;
+  guardrailWarnings: GuardrailWarning[];
   modelUsed: string;
+  variantB?: SynthesizedQuestionResult | null;
+}
+
+function resolveAutoTrigger(c?: Contact | null): Exclude<PersuasionStyleId, 'auto'> {
+  if (!c) return 'honesty';
+  if (c.stage === 'proposal' || c.stage === 'negotiation') return 'honesty';
+  if (c.stage === 'qualified' || c.temperature === 'warm') return 'speed_ease';
+  return 'curiosity';
+}
+
+function buildLocalTriggerVariant(
+  style: Exclude<PersuasionStyleId, 'auto'>,
+  leadPhrase: string,
+  baseQ: string,
+  targetPersonaName: string,
+  comments: QuestionComment[],
+  category: SynthesizedQuestionResult['category'],
+): SynthesizedQuestionResult {
+  const styleMeta = PERSUASION_STYLE_MAP[style];
+  const normalizedBase = baseQ.charAt(0).toLowerCase() + baseQ.slice(1);
+  let question: string;
+  let followUpQuestion: string;
+  let predictedObjection: string;
+
+  switch (style) {
+    case 'curiosity':
+      question = `«${leadPhrase}, ихэнх харилцагч анзааралгүй орхидог нэг зүйл бий — танай одоогийн даатгал нөхөн төлбөр дээр ямар бичиг баримт, хэдэн хоног шаарддагийг шалгаж үзсэн үү?»`;
+      followUpQuestion = '«Хэрэв апп-аар бодит цагт хянадаг, ~3 өдөрт шийддэг ялгааг 1 минутад харуулбал сонирхолтой юу?»';
+      predictedObjection = '«Мэдэхгүй байна / Өөр газар байгаа» гэвэл шийдвэрлэх хугацааны зөрүүг тодруулна.';
+      break;
+    case 'loss_avoidance':
+      question = `«${leadPhrase}, гэнэтийн осол эсвэл зогсолт гарах үед ганц удаагийн засвар, орлогын алдагдал жилийн хураамжаас хэд дахин давдгийг бодвол хохирол гарахаас өмнө яг юуг нь түрүүлж хаах хэрэгтэй байна вэ?»`;
+      followUpQuestion = '«Энэ эрсдэлээс сэргийлэх 2 багцын сарын дүнг харьцуулаад илгээх үү?»';
+      predictedObjection = '«Надад тохиолдохгүй байх» гэвэл салбарын бодит жишээ болон сарын бага дүнгээр тайлбарлана.';
+      break;
+    case 'honesty':
+      question = `«${leadPhrase}, шударгаар хэлэхэд даатгал бүр юуг хамгаалах ба ямар 2–3 зүйлийг хасах вэ гэдэг тодорхой заагтай байдаг. Манай гэрээ яг юуг бүрэн хаагаад, юуг нөхөхгүйг танд одоо ил тод тайлбарлаад өгөх үү?»`;
+      followUpQuestion = '«Ил тод нөхцөл таалагдвал танай хэрэгцээнд таарсан хураамжийг 2 минутад бодоод харуулах уу?»';
+      predictedObjection = '«Ямар зүйл хасагддаг юм бэ?» гэж шууд сонирхож асууна — эргэлзээг нуухгүй тайлбарласнаар итгэл эрс өснө.';
+      break;
+    case 'contrast':
+      question = `«${leadPhrase}, зөвхөн хураамж харахын оронд салбар дамжихгүйгээр утсаар шийддэг, шил толь ба жижиг сэв зураас хэдэн удаа ордог ялгааг одоогийн даатгалтайгаа харьцуулж үзэх үү?»`;
+      followUpQuestion = '«Харьцуулалтаар манайх цаг ба хамгаалалтаараа илүү байвал сунгалт дээрээ бодож үзэх үү?»';
+      predictedObjection = '«Яг ямар ялгаатай юм?» гэвэл 1 хуудас харьцуулалт илгээнэ.';
+      break;
+    case 'specificity':
+      question = `«${leadPhrase}, бодит тоогоор яривал 5 сая₮ хүртэлх нөхөн төлбөрийг ажлын 7 хоногт (Найдвартай багц дээр хоцорвол өдрийн 0.5% алдангитай) шийддэг — танай төсөвт яг таарах 2 хувилбарын тооцоог харуулах уу?»`;
+      followUpQuestion = '«Тооцооны аль хувилбар нь танай төсөвт илүү ойр харагдаж байна вэ?»';
+      predictedObjection = '«Яг тийм хурдан гардаг уу?» гэвэл бодит апп хяналт болон гэрээний заалтыг зааж өгнө.';
+      break;
+    case 'reciprocity':
+      question = `«${leadPhrase}, та өнөөдөр шууд шийдэх албагүй ээ — харин танай нөхцөлд тохирсон 2 багцын үнэгүй 1 хуудас харьцуулалтыг бэлдээд чатаар үлдээчих үү? Дараа нь харьцуулахад амар байна байх.»`;
+      followUpQuestion = '«Танд аль имэйл эсвэл чатаар харьцуулалтаа явуулахад амар вэ?»';
+      predictedObjection = '«За явуулчих» гэж зөөлнөөр зөвшөөрөх магадлал өндөр.';
+      break;
+    case 'speed_ease':
+    default:
+      question = `«${leadPhrase}, ${normalizedBase} Хэрэв салбарт очилгүй утсаараа 3 минутад шийдэх боломжтой бол танд ямар асуудал хамгийн түрүүнд хөнгөрөх вэ?»`;
+      followUpQuestion = '«Тэгвэл яг энэ нөхцөлөөр 2 хувилбарын тооцоог одоо чатаар харьцуулаад илгээчих үү?»';
+      predictedObjection = '«Одоо өөр газар даатгалтай байгаа / Дараа болъё» гэвэл сайжруулах цорын ганц зүйлийг асууна.';
+      break;
+  }
+
+  const context = `${targetPersonaName} — "${styleMeta.label}" (${styleMeta.mechanism}) аргаар бэлтгэв.`;
+  const rationale = comments[0]
+    ? `Багийн туршлагаас ("${comments[0].content.slice(0, 80)}...") санаа авч, "${styleMeta.label}" хөшүүргээр боловсруулав. ${styleMeta.caveat}`
+    : `${styleMeta.shortHint}. ${styleMeta.caveat}`;
+
+  return {
+    title: `${styleMeta.label}: ${targetPersonaName.split('(')[0].trim()}`,
+    category,
+    question,
+    context,
+    rationale,
+    followUpQuestion,
+    predictedObjection,
+    targetPersonaName,
+    triggerStyle: style,
+    triggerLabel: styleMeta.label,
+    guardrailWarnings: checkCopyGuardrails(`${question} ${context} ${followUpQuestion}`),
+    modelUsed: 'local-synthesizer-v2',
+  };
 }
 
 /** Тодорхой Persona эсвэл CRM харилцагч дээр суурилан хамгийн тохирсон шинэ асуулт боловсруулах агент */
@@ -630,8 +722,21 @@ export async function synthesizePersonaQuestion(params: {
   contact?: Contact | null;
   personaName?: string | null;
   goal?: string | null;
+  triggerStyle?: PersuasionStyleId | null;
+  abTestMode?: boolean;
+  abCompareStyle?: PersuasionStyleId | null;
 }): Promise<SynthesizedQuestionResult> {
-  const { cluster, sourceQuestion, comments = [], contact, personaName, goal } = params;
+  const {
+    cluster,
+    sourceQuestion,
+    comments = [],
+    contact,
+    personaName,
+    goal,
+    triggerStyle = 'auto',
+    abTestMode = false,
+    abCompareStyle = null,
+  } = params;
   const targetPersonaName =
     personaName ||
     (contact ? `${contact.fullName}${contact.role ? ` (${contact.role})` : ''}${contact.company ? ` · ${contact.company}` : ''}` : null) ||
@@ -639,6 +744,9 @@ export async function synthesizePersonaQuestion(params: {
     PERSONA_ARCHETYPES[0].name;
 
   const targetCategory = (sourceQuestion?.category as SynthesizedQuestionResult['category']) || 'discovery';
+  const resolvedPrimary: Exclude<PersuasionStyleId, 'auto'> =
+    !triggerStyle || triggerStyle === 'auto' ? resolveAutoTrigger(contact) : triggerStyle;
+
   const baseContext = [
     cluster ? `Кластер: ${cluster.name}\nДүгнэлт: ${cluster.summary}\nБодит үр дүн: ${cluster.performanceVerdict}` : '',
     sourceQuestion ? `Эх асуулт: ${sourceQuestion.question}\nЗорилго: ${sourceQuestion.title}` : '',
@@ -651,80 +759,100 @@ export async function synthesizePersonaQuestion(params: {
     .filter(Boolean)
     .join('\n\n');
 
-  const localFallback = (): SynthesizedQuestionResult => {
-    const leadPhrase = contact
-      ? `${contact.fullName.split(' ').slice(-1)[0]} ээ, ${contact.company ? `${contact.company}-ийн` : 'таны'} хувьд`
-      : `${targetPersonaName.split('(')[0].trim()} таны хувьд`;
-    const baseQ = (sourceQuestion?.question || cluster?.refinedQuestion || 'одоогийн даатгалын нөхцөл тань ямар байгаа вэ?').replace(/^[«"]|[»"]$/g, '');
-    return {
-      title: `${targetPersonaName.split('(')[0].trim()} — Оновчилсон асуулт`,
-      category: targetCategory,
-      question: `«${leadPhrase}, ${baseQ.charAt(0).toLowerCase() + baseQ.slice(1)} Хэрэв салбарт очилгүй 3 минутад утсаараа шийдэх боломжтой бол танд ямар асуудал хамгийн түрүүнд хөнгөрөх вэ?»`,
-      context: `${targetPersonaName} төрлийн харилцагчийн гол сэдэл болон Practical-ийн 3 минутын онлайн амлалтыг уясан хувилбар.`,
-      rationale: comments[0]
-        ? `Багийн туршлагаас ("${comments[0].content.slice(0, 90)}...") санаа авч, татгалзал үүсгэхгүй нээлттэй хэлбэрт оруулав.`
-        : 'Нээлттэй discovery болон цаг хэмнэлтийн сэтгэл зүйг нэгтгэв.',
-      followUpQuestion: '«Тэгвэл яг энэ нөхцөлөөр 2 хувилбарын тооцоог одоо чатаар харьцуулаад илгээчих үү?»',
-      predictedObjection: '«Одоо өөр газар даатгалтай байгаа / Дараа болъё» гэвэл одоогийн даатгалын сайжруулах цорын ганц зүйлийг асууна.',
-      targetPersonaName,
-      modelUsed: 'local-synthesizer-v1',
-    };
-  };
+  const leadPhrase = contact
+    ? `${contact.fullName.split(' ').slice(-1)[0]} ээ, ${contact.company ? `${contact.company}-ийн` : 'таны'} хувьд`
+    : `${targetPersonaName.split('(')[0].trim()} таны хувьд`;
+  const baseQ = (sourceQuestion?.question || cluster?.refinedQuestion || 'одоогийн даатгалын нөхцөл тань ямар байгаа вэ?').replace(/^[«"]|[»"]$/g, '');
 
-  if (!aiEnabled()) return localFallback();
+  const synthesizeSingle = async (style: Exclude<PersuasionStyleId, 'auto'>): Promise<SynthesizedQuestionResult> => {
+    const local = buildLocalTriggerVariant(style, leadPhrase, baseQ, targetPersonaName, comments, targetCategory);
+    if (!aiEnabled()) return local;
 
-  const abortCtrl = new AbortController();
-  const timeoutId = setTimeout(() => abortCtrl.abort(), 16000);
-  try {
-    const res = await fetch(`${process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-      signal: abortCtrl.signal,
-      body: JSON.stringify({
-        model: MODEL(),
-        temperature: 0.5,
-        response_format: { type: 'json_object' },
-        messages: [
-          {
-            role: 'system',
-            content: `Чи "Практикал Даатгал"-ын борлуулалтын ахлах коуч. Өгөгдсөн Persona болон Асуултын банкны кластер/туршлагад тулгуурлан яг тэр хүнд төгс таарсан ШИНЭ, ИЛҮҮ ХҮЧТЭЙ асуулт боловсруулж ЗӨВХӨН JSON буцаа:
+    const styleMeta = PERSUASION_STYLE_MAP[style];
+    const abortCtrl = new AbortController();
+    const timeoutId = setTimeout(() => abortCtrl.abort(), 16000);
+    try {
+      const res = await fetch(`${process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+        signal: abortCtrl.signal,
+        body: JSON.stringify({
+          model: MODEL(),
+          temperature: 0.5,
+          response_format: { type: 'json_object' },
+          messages: [
+            {
+              role: 'system',
+              content: `Чи "Практикал Даатгал"-ын борлуулалтын ахлах коуч. Өгөгдсөн Persona, Асуултын банкны туршлага болон СОНГОСОН СЭТГЭЛЗҮЙН ХӨШҮҮРЭГ дээр тулгуурлан яг тэр хүнд тохирсон ШИНЭ, ИЛҮҮ ХҮЧТЭЙ асуулт боловсруулж ЗӨВХӨН JSON буцаа.
+
+СОНГОСОН ХӨШҮҮРЭГ: ${styleMeta.label} (${styleMeta.mechanism})
+ХЭРЭГЛЭХ ЗААВАР: ${styleMeta.promptInstruction}
+АНХААРАХ ХЯЗГААРЛАЛТ: ${styleMeta.caveat}
+
+ЁС ЗҮЙ БА ИТГЭЛЦЛИЙН ХАТУУ ДҮРЭМ (Guardrails):
+${ETHICAL_COPY_GUARDRAILS.map((g) => `- ${g}`).join('\n')}
+
+JSON БҮТЭЦ:
 {
   "title": "Асуултын зорилго, товч гарчиг (10-120 тэмдэгт)",
   "category": "discovery | spin | bant | objection | closing | digital | renewal аль тохирох 1 утга",
   "question": "«Харилцагчид шууд хэлэх, байгалийн Монгол ярианы өнгөтэй хүчирхэг асуулт»",
-  "context": "Хэзээ, яагаад асуух сэтгэл зүйн тайлбар",
-  "rationale": "Бодит коммент, кластерийн дүгнэлтээс юуг сайжруулж авсан тайлбар",
-  "followUpQuestion": "Энэ асуултын дараа шууд асуух дараагийн алхмын асуулт",
+  "context": "Хэзээ, яагаад энэ сэтгэлзүйн хөшүүргээр асуух тайлбар",
+  "rationale": "Бодит коммент, хөшүүрэг ба кластерийн дүгнэлтээс юуг сайжруулж авсан тайлбар",
+  "followUpQuestion": "Энэ асуултын дараа шууд асуух дараагийн алхмын тодорхой асуулт",
   "predictedObjection": "Харилцагчийн өгөх магадлалтай хариу ба эргүүлэх сэжим"
 }`,
-          },
-          { role: 'user', content: `ЗОРИЛТОТ PERSONA: ${targetPersonaName}\n\n${baseContext}` },
-        ],
-      }),
-    });
-    clearTimeout(timeoutId);
-    if (!res.ok) throw new Error(`OpenAI алдаа (${res.status})`);
-    const json = await res.json();
-    const parsed = JSON.parse(json.choices?.[0]?.message?.content || '{}') as Partial<SynthesizedQuestionResult>;
-    const validCats = ['discovery', 'spin', 'bant', 'objection', 'closing', 'digital', 'renewal'] as const;
-    const cat = validCats.includes(parsed.category as typeof validCats[number]) ? (parsed.category as typeof validCats[number]) : targetCategory;
-    if (!parsed.question || !parsed.title) return localFallback();
-    return {
-      title: parsed.title,
-      category: cat,
-      question: parsed.question,
-      context: parsed.context || localFallback().context,
-      rationale: parsed.rationale || localFallback().rationale,
-      followUpQuestion: parsed.followUpQuestion || localFallback().followUpQuestion,
-      predictedObjection: parsed.predictedObjection || localFallback().predictedObjection,
-      targetPersonaName,
-      modelUsed: MODEL(),
-    };
-  } catch (err) {
-    clearTimeout(timeoutId);
-    console.warn('Асуулт боловсруулахад OpenAI саатсан тул локал загвар ашиглалаа:', (err as Error).message);
-    return localFallback();
+            },
+            { role: 'user', content: `ЗОРИЛТОТ PERSONA: ${targetPersonaName}\n\n${baseContext}` },
+          ],
+        }),
+      });
+      clearTimeout(timeoutId);
+      if (!res.ok) throw new Error(`OpenAI алдаа (${res.status})`);
+      const json = await res.json();
+      const parsed = JSON.parse(json.choices?.[0]?.message?.content || '{}') as Partial<SynthesizedQuestionResult>;
+      const validCats = ['discovery', 'spin', 'bant', 'objection', 'closing', 'digital', 'renewal'] as const;
+      const cat = validCats.includes(parsed.category as typeof validCats[number]) ? (parsed.category as typeof validCats[number]) : targetCategory;
+      if (!parsed.question || !parsed.title) return local;
+
+      const out: SynthesizedQuestionResult = {
+        title: parsed.title,
+        category: cat,
+        question: parsed.question,
+        context: parsed.context || local.context,
+        rationale: parsed.rationale || local.rationale,
+        followUpQuestion: parsed.followUpQuestion || local.followUpQuestion,
+        predictedObjection: parsed.predictedObjection || local.predictedObjection,
+        targetPersonaName,
+        triggerStyle: style,
+        triggerLabel: styleMeta.label,
+        guardrailWarnings: checkCopyGuardrails(`${parsed.title} ${parsed.question} ${parsed.context ?? ''} ${parsed.followUpQuestion ?? ''}`),
+        modelUsed: MODEL(),
+      };
+      return out;
+    } catch (err) {
+      clearTimeout(timeoutId);
+      console.warn('Асуулт боловсруулахад OpenAI саатсан тул локал загвар ашиглалаа:', (err as Error).message);
+      return local;
+    }
+  };
+
+  if (!abTestMode) {
+    return synthesizeSingle(resolvedPrimary);
   }
+
+  const resolvedB: Exclude<PersuasionStyleId, 'auto'> =
+    abCompareStyle && abCompareStyle !== 'auto' && abCompareStyle !== resolvedPrimary
+      ? abCompareStyle
+      : resolvedPrimary === 'honesty'
+        ? 'loss_avoidance'
+        : 'honesty';
+
+  const [variantA, variantB] = await Promise.all([synthesizeSingle(resolvedPrimary), synthesizeSingle(resolvedB)]);
+  return {
+    ...variantA,
+    variantB,
+  };
 }
 
 /** Амьд коуч чатад харилцагчийн Persona-тай вектор/утгаар хамгийн сайн таарах асуулт, кластерийг татах */
@@ -853,6 +981,9 @@ export async function fetchQuestionsFeed(
       aiAnalysis: schema.questions.aiAnalysis,
       refinedVariant: schema.questions.refinedVariant,
       relatedQuestionIds: schema.questions.relatedQuestionIds,
+      triggerStyle: schema.questions.triggerStyle,
+      abGroup: schema.questions.abGroup,
+      abVariantLabel: schema.questions.abVariantLabel,
       analyzedAt: schema.questions.analyzedAt,
       createdAt: schema.questions.createdAt,
       commentsCount: sql<number>`(select count(*)::int from question_comments qc where qc.question_id = ${schema.questions.id})`,
@@ -861,6 +992,19 @@ export async function fetchQuestionsFeed(
     .orderBy(...sortOrder);
 
   const allVotes = await db.select().from(schema.questionVotes);
+  const allCommentOutcomes = await db
+    .select({ questionId: schema.questionComments.questionId, outcome: schema.questionComments.outcome })
+    .from(schema.questionComments);
+
+  const outcomesByQ = new Map<string, { closed: number; meeting: number; rejected: number }>();
+  for (const c of allCommentOutcomes) {
+    if (!c.outcome) continue;
+    const entry = outcomesByQ.get(c.questionId) ?? { closed: 0, meeting: 0, rejected: 0 };
+    if (c.outcome === 'closed') entry.closed += 1;
+    else if (c.outcome === 'meeting') entry.meeting += 1;
+    else if (c.outcome === 'rejected') entry.rejected += 1;
+    outcomesByQ.set(c.questionId, entry);
+  }
   const proIds = await getProUserIds([
     ...rows.map((r) => r.userId),
     ...allVotes.map((v) => v.userId),
@@ -917,6 +1061,10 @@ export async function fetchQuestionsFeed(
       votesCount: r.votesCount,
       dislikesCount: r.dislikesCount,
       commentsCount: r.commentsCount,
+      triggerStyle: r.triggerStyle ?? null,
+      abGroup: r.abGroup ?? null,
+      abVariantLabel: r.abVariantLabel ?? null,
+      outcomes: outcomesByQ.get(r.id) ?? { closed: 0, meeting: 0, rejected: 0 },
       userVote: myVoteByQ.get(r.id) ?? null,
       likedBy,
       unlikedBy,

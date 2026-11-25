@@ -18,7 +18,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'Хүсэлтийн өгөгдөл буруу байна' }, { status: 400 });
   }
-  const { clusterId, questionId, contactId, personaName, goal } = parsed.data;
+  const { clusterId, questionId, contactId, personaName, goal, triggerStyle, abTestMode, abCompareStyle } = parsed.data;
 
   const db = await getDb();
 
@@ -43,6 +43,9 @@ export async function POST(req: Request) {
     contact,
     personaName,
     goal,
+    triggerStyle,
+    abTestMode,
+    abCompareStyle,
   });
 
   return NextResponse.json(result);

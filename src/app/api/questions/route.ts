@@ -32,7 +32,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message || 'Мэдээлэл буруу байна' }, { status: 400 });
   }
-  const { title, question, category, tags: manualTags, context } = parsed.data;
+  const { title, question, category, tags: manualTags, context, triggerStyle, abGroup, abVariantLabel } = parsed.data;
   const normalizedTags = extractHashtags(`${question} ${context ?? ''}`, manualTags);
   const autoTitle =
     title?.trim() ||
@@ -55,6 +55,9 @@ export async function POST(req: Request) {
       title: autoTitle,
       question,
       context: context || null,
+      triggerStyle: triggerStyle || null,
+      abGroup: abGroup || null,
+      abVariantLabel: abVariantLabel || null,
       votesCount: 0,
       dislikesCount: 0,
     })
@@ -69,6 +72,7 @@ export async function POST(req: Request) {
       ...created,
       authorPlan: user.plan,
       commentsCount: 0,
+      outcomes: { closed: 0, meeting: 0, rejected: 0 },
       userVote: null,
       likedBy: [],
       unlikedBy: [],

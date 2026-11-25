@@ -142,6 +142,9 @@ export const questions = pgTable(
     aiAnalysis: text('ai_analysis'),
     refinedVariant: text('refined_variant'),
     relatedQuestionIds: jsonb('related_question_ids').$type<string[]>().notNull().default([]),
+    triggerStyle: text('trigger_style'),
+    abGroup: text('ab_group'),
+    abVariantLabel: text('ab_variant_label'),
     analyzedAt: timestamp('analyzed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -178,6 +181,7 @@ export const questionComments = pgTable(
     authorName: text('author_name').notNull(),
     authorImage: text('author_image'),
     content: text('content').notNull(),
+    outcome: text('outcome'), // 'meeting' | 'closed' | 'rejected' | 'insight'
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [index('question_comments_question_idx').on(t.questionId)],

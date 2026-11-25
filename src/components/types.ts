@@ -1,5 +1,6 @@
 import type { ContactChannels, ContactPersona, PersonaMatch } from '@/db/schema';
 import type { UserPlan } from '@/lib/api';
+import type { CommentOutcomeId, GuardrailWarning, PersuasionStyleId } from '@/lib/persuasion-frameworks';
 
 export interface ContactShareInfoDTO {
   userId: string;
@@ -72,6 +73,10 @@ export interface QuestionDTO {
   dislikesCount: number;
   createdAt: string;
   commentsCount: number;
+  triggerStyle?: PersuasionStyleId | string | null;
+  abGroup?: string | null;
+  abVariantLabel?: 'A' | 'B' | string | null;
+  outcomes?: { closed: number; meeting: number; rejected: number };
   userVote: 'like' | 'unlike' | null;
   likedBy: VoterInfoDTO[];
   unlikedBy: VoterInfoDTO[];
@@ -107,6 +112,10 @@ export interface SynthesizedQuestionDTO {
   followUpQuestion: string;
   predictedObjection: string;
   targetPersonaName: string;
+  triggerStyle?: PersuasionStyleId;
+  triggerLabel?: string;
+  guardrailWarnings?: GuardrailWarning[];
+  variantB?: SynthesizedQuestionDTO | null;
 }
 
 export interface QuestionCommentDTO {
@@ -117,5 +126,6 @@ export interface QuestionCommentDTO {
   authorImage: string | null;
   authorPlan?: UserPlan;
   content: string;
+  outcome?: CommentOutcomeId | string | null;
   createdAt: string;
 }

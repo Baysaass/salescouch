@@ -5,6 +5,7 @@ import { STAGE_LABELS, TEMPERATURE_LABELS, PERSONA_FIELDS, CHANNEL_FIELDS } from
 import { SKILL_DOCS } from './skill-docs';
 import { COMPANY_FACTS, matchProducts, productBrief, productCatalogCompact, type Product } from './products';
 import { playbookPromptCompact } from './playbook';
+import { ETHICAL_COPY_GUARDRAILS, getAwarenessCoachGuidance } from './persuasion-frameworks';
 
 export function contactText(c: Contact): string {
   return [c.company, c.role, c.notes, ...Object.values(c.persona ?? {}), ...Object.values(c.channels ?? {})]
@@ -40,6 +41,8 @@ function systemPrompt(c: Contact, userMessage: string, skill?: SalesSkill, bankQ
   const library = SKILLS.map((s) => `• ${s.id} — ${s.name}: ${s.short}`).join('\n');
   const matched: Product[] = matchProducts(`${contactText(c)} ${userMessage}`, 4);
   const doc = skill ? SKILL_DOCS[skill.id] : undefined;
+  const hasRealDeadline = Boolean(c.persona?.renewalDate?.trim() || c.persona?.timeline?.trim());
+  const awareness = getAwarenessCoachGuidance(c.stage, c.temperature, hasRealDeadline);
   const bankBlock = bankQuestions.length
     ? `\nАСУУЛТЫН БАНКНААС ЭНЭ ХАРИЛЦАГЧИД ТОХИРОХ ШИЛДЭГ АСУУЛТУУД (хамт олны баталсан):\n${bankQuestions
         .map(
@@ -51,16 +54,26 @@ function systemPrompt(c: Contact, userMessage: string, skill?: SalesSkill, bankQ
 
   return `Чи бол "Практикал Даатгал" ХХК-ийн борлуулалтын ахлах коуч. Борлуулагч (хэрэглэгч) нэг тодорхой харилцагчтай хэрхэн харилцах, ямар аргаар, ямар бүтээгдэхүүн санал болгохыг зөвлөнө. Чи харилцагчтай өөрөө ярихгүй — борлуулагчид зөвлөнө.
 
+ХАРИЛЦАГЧИЙН ШАТ БА МЕСЕЖИЙН БҮТЭЦ (Schwartz Awareness Ladder):
+- Одоогийн үе шат: ${awareness.awarenessLevel}
+- Хэрэглэх бүтэц: ${awareness.structureName}
+- Дараалал: ${awareness.stepsMn}
+- Тохирох сэтгэлзүйн хөшүүрэг:
+  • Хүйтэн / Анхны харилцаа: Шууд үнэ, гэрээ тулгахгүй — "Асуудал → бодит зардал → шийдэл → тодорхой CTA" эсвэл "Сонирхол өдөөх асуулт → баримт → CTA" бич.
+  • Дулаан / Санал авсан: "Өмнө нь цаас/олон хоног → Одоо утсаараа 3 минут / цахим ~3 өдөр" (Before → After → Why) болон гэрээний хасах нөхцөлийг шударгаар хэлж (Honesty) итгэл төрүүл.
+  • Сунгалт / Эцсийн шийдвэр: ЗӨВХӨН харилцагчийн бодит огноо (${c.persona?.renewalDate || c.persona?.timeline || 'тодруулах'}) мэдэгдэж байвал "Бодит хугацаа → шалтгаан → 2 минутын CTA" ашигла.
+  • Тодорхой CTA (NN/g): "Дэлгэрэнгүй" гэх ерөнхий үгийн оронд яг юу авахыг хэл ("3 минутад хураамжаа бодуулах уу?", "1 хуудас харьцуулалт илгээх үү?").
+
 АЖИЛЛАХ ДАРААЛАЛ (дотооддоо бод, хариултад товч тусга):
 1. Оношлох: харилцагч аль үе шатанд, юу мэдэгдэж, юу дутуу байна (BANT/MEDDIC-ийн аль шалгуур дутуу).
 2. Арга сонгох: доорх skill-ээс тохирохыг сонго (хэрэглэгч сонгосон бол түүнийг баримтал) — яагаад тэр аргыг сонгосноо 1 өгүүлбэрээр хэл.
 3. Бүтээгдэхүүн тааруулах: ЗӨВХӨН доорх Practical-ийн бүтээгдэхүүний сангаас санал болго. Хураамж, хамгаалалт, хариуцах хэсэг, нөхөн төлбөрийн хугацааг сангаас яг таг иш татаж, боломжтой бол харилцагчийн машин/ажилтны тоогоор жишээ тооцоо хий (тооцоогоо харуул).
-4. Хэрэглэхэд бэлэн гаралт: Монгол хэлээр скрипт, асуулт, мессеж, эсвэл имэйл.
+4. Хэрэглэхэд бэлэн гаралт: Монгол хэлээр дээрх Awareness шатад тааруулсан скрипт, асуулт, мессеж, эсвэл имэйл.
 5. Төгсгөлд "**Дараагийн алхам:**" — 1–2 тодорхой үйлдэл, мөн тодруулах 1–2 асуулт.
 
-ДҮРЭМ:
+ДҮРЭМ БА ЁС ЗҮЙН ХАТУУ ШААРДЛАГА (Guardrails):
 - Сангаас олдохгүй үнэ, нөхцөл, хөнгөлөлтийг ЗОХИОХГҮЙ — "даатгалын менежерээс баталгаажуулах" гэж бич. ⚠️ тэмдэгтэй бүтээгдэхүүний нөхцөлийг баталгаажуулахыг сануул.
-- Хууль, ёс зүйд нийцнэ: даатгуулагчийг төөрөгдүүлэх, татгалзах нөхцөлийг нуух, айлган сүрдүүлэхийг зөвлөхгүй. Татгалзах гол нөхцөлийг шударгаар дурд.
+${ETHICAL_COPY_GUARDRAILS.map((g) => `- ${g}`).join('\n')}
 - Мэдээлэл дутуу бол таамаглалаа "(таамаг)" гэж тэмдэглэ.
 - Имэйл/Gmail ноорог бичихдээ ЗААВАЛ \`\`\`email блок: эхний мөр "Subject: ...", хоосон мөр, дараа нь бие. Харилцагчийг нэрээр нь хүндэтгэлтэй хандана, гарын үсэгт "[Таны нэр] · Практикал Даатгал · 7777-6677".
 - Markdown ашигла (гарчиг, жагсаалт, хүснэгт). Хэт урт бүү бич — борлуулагч утсаараа уншина.
@@ -178,17 +191,25 @@ export function localCoach(c: Contact, userMessage: string, skillId?: string | n
   const first = c.fullName.split(' ').slice(-1)[0];
   const p: ContactPersona = c.persona ?? {};
   const known = (v?: string | null) => (v && v.trim() ? v : '_тодорхойгүй — тодруулах_');
+  const hasRealDeadline = Boolean(p.renewalDate?.trim() || p.timeline?.trim());
+  const awareness = getAwarenessCoachGuidance(c.stage, c.temperature, hasRealDeadline);
 
   const parts: string[] = [
     `## ${skill.name} — ${c.fullName}${c.company ? ` (${c.company})` : ''}`,
     skill.description,
     '',
     '### Харилцагчийн товч',
-    `- **Үүрэг:** ${known(c.role)} · **Үе шат:** ${STAGE_LABELS[c.stage] ?? c.stage}`,
+    `- **Үүрэг:** ${known(c.role)} · **Үе шат:** ${STAGE_LABELS[c.stage] ?? c.stage} (${TEMPERATURE_LABELS[c.temperature] ?? c.temperature})`,
     `- **Зорилго:** ${known(p.goals)}`,
     `- **Өвдөлт:** ${known(p.pains)}`,
-    `- **Төсөв:** ${known(p.budget)} · **Хугацаа:** ${known(p.timeline)}`,
+    `- **Төсөв:** ${known(p.budget)} · **Хугацаа:** ${known(p.timeline || p.renewalDate)}`,
     `- **Одоогийн даатгагч:** ${known(p.currentInsurer)} · **Сонирхож буй:** ${known(p.productsOfInterest)}`,
+    '',
+    '### Харилцагчийн шатад таарсан бичвэрийн бүтэц',
+    `- **Шат:** ${awareness.awarenessLevel}`,
+    `- **Санал болгох бүтэц:** ${awareness.structureName}`,
+    `- **Дараалал:** ${awareness.stepsMn}`,
+    `- **Аюулгүй байдлын санамж:** Бодит бус яаравчлал, хуурамч тоо баримт ашиглахгүй; татгалзах нөхцөлийг шударгаар ил хэлнэ.`,
     '',
     '### Алхмууд',
     ...skill.steps.map((s, i) => `${i + 1}. ${s}`),
@@ -225,21 +246,42 @@ export function localCoach(c: Contact, userMessage: string, skillId?: string | n
 
   if (skill.category === 'writing' || skill.id === 'aida') {
     const product = p.productsOfInterest || 'даатгалын хамгаалалт';
+    const isColdOrEarly = c.stage === 'lead' || c.temperature === 'cold';
+    const isDeadline = hasRealDeadline;
+
+    const bodyLines = isColdOrEarly
+      ? [
+          `${c.company ? `${c.company}-ийн` : 'Таны'} хувьд гэнэтийн эрсдэлийн дараа засвар, бичиг баримт бүрдүүлэхэд хэдэн өдөр алдагддагийг тооцож үзсэн үү? (Problem → Cost)`,
+          `Бид салбар дээр очихгүйгээр утсаараа 3 минутад гэрээ байгуулж, тохиолдол гарвал ~3 өдөрт онлайнаар нөхөн төлбөрөө шийдүүлэх боломжийг олгодог. (Answer)`,
+          '',
+          `Та зөвшөөрвөл танай нөхцөлд тохирох ${product}-ийн 2 хувилбарын үнийн харьцуулалтыг 1 хуудсаар илгээх үү?`,
+        ]
+      : isDeadline
+        ? [
+            `${p.renewalDate || p.timeline} гэхэд танай гэрээний хугацаа дуусах/шийдвэр гарах тул даатгалын хамгаалалт тасрахгүй байх үүднээс ${product}-ийн шинэчилсэн нөхцөлийг бэлтгэлээ. (Real Deadline → Reason)`,
+            'Шударгаар дурдахад манай гэрээ ямар эрсдэлийг хамгаалах ба ямар 2–3 зүйлийг хасахыг доорх харьцуулалтад ил тод бичсэн байгаа.',
+            '',
+            'Хэрэв нөхцөл таарвал 2 минутын төлбөрийн линк илгээж сунгалтыг баталгаажуулах уу?',
+          ]
+        : [
+            `Өмнө нь: нөхөн төлбөр авахад цаас бүрдүүлж салбар руу олон хоног явдаг байсан. Одоо: апп-аараа зураг илгээгээд ~3 өдөрт цахимаар шийдүүлнэ. (Before → After → Why)`,
+            `Шударгаар хэлэхэд ${product} нь яг ямар эрсдэлийг хаах ба ямар тохиолдолд нөхөгдөхгүйг бид анхнаас нь ил тод тайлбарладаг тул далд заалт байхгүй.`,
+            '',
+            'Одоогийн даатгалтайгаа харьцуулаад 3 минутад хураамжийн тооцоог нь харах уу?',
+          ];
+
     parts.push(
       '',
-      '### Gmail ноорог',
+      `### Gmail ноорог (${awareness.structureName})`,
       '```email',
-      `Subject: ${c.company ? `${c.company}-д зориулсан ` : ''}${product} — 15 минутын санал`,
+      `Subject: ${c.company ? `${c.company}-д зориулсан ` : ''}${product} — ${isColdOrEarly ? 'эрсдэл ба хугацаа хэмнэх санал' : 'бодит нөхцөл ба харьцуулалт'}`,
       '',
       `Сайн байна уу, ${first} оо,`,
       '',
-      `${c.company ? `${c.company}-ийн` : 'Таны'} ${p.pains ? `"${p.pains}" гэсэн асуудлыг` : 'өнөөгийн эрсдэлийн удирдлагыг'} хөнгөвчлөх нэг санаа байна.`,
-      `Манай ${product} нь нөхөн төлбөрийг цахимаар шуурхай шийддэг бөгөөд таны нөхцөлд тохируулан хамрах хүрээг сонгох боломжтой.`,
-      '',
-      'Энэ долоо хоногт 15 минут ярилцаж, танай одоогийн хамгаалалтыг хамтдаа харвал ямар вэ?',
+      ...bodyLines,
       '',
       'Хүндэтгэсэн,',
-      '[Таны нэр]',
+      '[Таны нэр] · Практикал Даатгал · 7777-6677',
       '```',
     );
   }

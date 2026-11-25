@@ -93,6 +93,9 @@ create table if not exists questions (
   ai_analysis text,
   refined_variant text,
   related_question_ids jsonb not null default '[]'::jsonb,
+  trigger_style text,
+  ab_group text,
+  ab_variant_label text,
   analyzed_at timestamptz,
   created_at timestamptz not null default now()
 );
@@ -119,6 +122,7 @@ create table if not exists question_comments (
   author_name text not null,
   author_image text,
   content text not null,
+  outcome text,
   created_at timestamptz not null default now()
 );
 create index if not exists question_comments_question_idx on question_comments(question_id);

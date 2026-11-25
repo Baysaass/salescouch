@@ -64,6 +64,7 @@ export async function POST(req: Request, { params }: Ctx) {
       authorName: user.name,
       authorImage: user.image,
       content: parsed.data.content,
+      outcome: parsed.data.outcome || null,
     })
     .returning();
 

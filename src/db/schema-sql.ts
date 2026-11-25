@@ -97,6 +97,9 @@ create table if not exists questions (
   ai_analysis text,
   refined_variant text,
   related_question_ids jsonb not null default '[]'::jsonb,
+  trigger_style text,
+  ab_group text,
+  ab_variant_label text,
   analyzed_at timestamptz,
   created_at timestamptz not null default now()
 );
@@ -109,6 +112,9 @@ alter table questions add column if not exists persona_scores jsonb not null def
 alter table questions add column if not exists ai_analysis text;
 alter table questions add column if not exists refined_variant text;
 alter table questions add column if not exists related_question_ids jsonb not null default '[]'::jsonb;
+alter table questions add column if not exists trigger_style text;
+alter table questions add column if not exists ab_group text;
+alter table questions add column if not exists ab_variant_label text;
 alter table questions add column if not exists analyzed_at timestamptz;
 create index if not exists questions_category_idx on questions(category);
 create index if not exists questions_votes_idx on questions(votes_count);
@@ -136,7 +142,9 @@ create table if not exists question_comments (
   author_name text not null,
   author_image text,
   content text not null,
+  outcome text,
   created_at timestamptz not null default now()
 );
+alter table question_comments add column if not exists outcome text;
 create index if not exists question_comments_question_idx on question_comments(question_id);
 `;
