@@ -33,6 +33,32 @@ export function relTime(iso?: string | null) {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
+export function ProVerifiedBadge({ size = 16, className, title = 'Pro хэрэглэгч' }: { size?: number; className?: string; title?: string }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-label={title}
+      className={clsx('inline-block shrink-0', className)}
+    >
+      <title>{title}</title>
+      <path
+        d="M12 1.5l2.36 1.78 2.91-.37 1.15 2.71 2.71 1.15-.37 2.91L22.5 12l-1.78 2.36.37 2.91-2.71 1.15-1.15 2.71-2.91-.37L12 22.5l-2.36-1.78-2.91.37-1.15-2.71-2.71-1.15.37-2.91L1.5 12l1.78-2.36-.37-2.91 2.71-1.15 1.15-2.71 2.91.37L12 1.5z"
+        fill="#16A34A"
+      />
+      <path
+        d="M8.4 12.3l2.35 2.35 4.95-5.2"
+        stroke="#FFFFFF"
+        strokeWidth="2.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function IconButton({ title, onClick, children, href, className }: { title: string; onClick?: () => void; children: React.ReactNode; href?: string; className?: string }) {
   const cls = clsx('inline-flex h-9 w-9 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink', className);
   if (href) return <a href={href} target={href.startsWith('http') ? '_blank' : undefined} rel="noreferrer" title={title} aria-label={title} className={cls}>{children}</a>;

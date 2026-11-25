@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { signOutAction } from '@/app/actions';
 import type { UserPlan } from '@/lib/api';
-import { Avatar } from './ui';
+import { Avatar, ProVerifiedBadge } from './ui';
 import { clsx } from './clsx';
 
 export type View = 'chat' | 'playbook' | 'onboarding' | 'questions' | 'docs' | 'products';
@@ -129,19 +129,23 @@ export function Sidebar({ user, view, onView, query, onQuery, counts, onUserUpda
       >
         <Avatar name={user.name || user.email} image={user.image} size={32} />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1">
             <p className="truncate text-[14.5px] font-medium">{user.name || 'Борлуулагч'}</p>
-            <span
-              className={clsx(
-                'inline-flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold',
-                isPro ? 'bg-brand text-secondary' : 'bg-[#ebecef] text-ink-2',
-              )}
-            >
-              {isPro && <Crown className="h-2.5 w-2.5" />}
-              {isPro ? 'Pro' : 'Free'}
-            </span>
+            {isPro && <ProVerifiedBadge size={16} />}
           </div>
           <p className="truncate text-xs text-ink-3">{user.email}</p>
+          <div className="mt-1 flex items-center gap-1">
+            {isPro ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                <ProVerifiedBadge size={11} />
+                Pro багц
+              </span>
+            ) : (
+              <span className="inline-flex items-center rounded-full bg-[#ebecef] px-2 py-0.5 text-[10px] font-semibold text-ink-2">
+                Free багц
+              </span>
+            )}
+          </div>
         </div>
         <ChevronRight className="h-3.5 w-3.5 shrink-0 text-ink-3" />
       </button>
@@ -211,21 +215,24 @@ export function Sidebar({ user, view, onView, query, onQuery, counts, onUserUpda
               <div className="flex items-center gap-3 min-w-0">
                 <Avatar name={user.name || user.email} image={user.image} size={44} />
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
                     <h3 className="truncate text-[15px] font-semibold text-ink">
                       {user.name || 'Борлуулагч'}
                     </h3>
-                    <span
-                      className={clsx(
-                        'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold',
-                        isPro ? 'bg-brand text-secondary' : 'bg-[#ebecef] text-ink-2',
-                      )}
-                    >
-                      {isPro && <Crown className="h-3 w-3" />}
-                      {isPro ? 'Pro' : 'Free'}
-                    </span>
+                    {isPro && <ProVerifiedBadge size={17} />}
+                    {!isPro && (
+                      <span className="inline-flex shrink-0 items-center rounded-full bg-[#ebecef] px-2 py-0.5 text-[11px] font-bold text-ink-2">
+                        Free
+                      </span>
+                    )}
                   </div>
                   <p className="truncate text-xs text-ink-3">{user.email}</p>
+                  {isPro && (
+                    <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10.5px] font-semibold text-emerald-700">
+                      <ProVerifiedBadge size={12} />
+                      Pro эрх идэвхтэй
+                    </span>
+                  )}
                 </div>
               </div>
               <button

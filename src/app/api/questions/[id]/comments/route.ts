@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { and, asc, eq } from 'drizzle-orm';
 import { getDb, schema } from '@/db';
-import { getSessionUser } from '@/lib/api';
+import { getProUserIds, getSessionUser } from '@/lib/api';
 import { questionCommentInput } from '@/lib/validators';
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -22,7 +22,13 @@ export async function GET(_req: Request, { params }: Ctx) {
     .where(eq(schema.questionComments.questionId, questionId))
     .orderBy(asc(schema.questionComments.createdAt));
 
-  return NextResponse.json(rows);
+  const proIds = await getProUserIds(rows.map((r) => r.userId));
+  return NextResponse.json(
+    rows.map((r) => ({
+      ...r,
+      authorPlan: proIds.has(r.userId.toLowerCase()) ? 'pro' : 'free',
+    })),
+  );
 }
 
 export async function POST(req: Request, { params }: Ctx) {
@@ -61,7 +67,7 @@ export async function POST(req: Request, { params }: Ctx) {
     })
     .returning();
 
-  return NextResponse.json(created, { status: 201 });
+  return NextResponse.json({ ...created, authorPlan: user.plan }, { status: 201 });
 }
 
 export async function DELETE(req: Request, { params }: Ctx) {

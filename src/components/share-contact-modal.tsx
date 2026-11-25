@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Loader2, Mail, Search, Send, Share2, Trash2, Users, X } from 'lucide-react';
 import type { ContactDTO, ContactShareInfoDTO, RegisteredUserDTO } from './types';
-import { Avatar } from './ui';
+import { Avatar, ProVerifiedBadge } from './ui';
 import { clsx } from './clsx';
 
 interface Props {
@@ -238,8 +238,9 @@ export function ShareContactModal({ contact, onClose, onSharesChanged }: Props) 
                       >
                         <Avatar name={u.name || u.email} image={u.image} size={30} />
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-xs font-semibold text-ink">
-                            {u.name || u.email.split('@')[0]}
+                          <p className="flex items-center gap-1 truncate text-xs font-semibold text-ink">
+                            <span className="truncate">{u.name || u.email.split('@')[0]}</span>
+                            {u.plan === 'pro' && <ProVerifiedBadge size={13} />}
                           </p>
                           <p className="truncate text-[11px] text-ink-2">{u.email}</p>
                         </div>
@@ -314,8 +315,9 @@ export function ShareContactModal({ contact, onClose, onSharesChanged }: Props) 
                   >
                     <Avatar name={s.name || s.email} image={s.image} size={32} />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-semibold text-ink">
-                        {s.name || s.email.split('@')[0]}
+                      <p className="flex items-center gap-1 truncate text-xs font-semibold text-ink">
+                        <span className="truncate">{s.name || s.email.split('@')[0]}</span>
+                        {s.plan === 'pro' && <ProVerifiedBadge size={13} />}
                       </p>
                       <p className="truncate text-[11px] text-ink-2">{s.email}</p>
                       {s.note && (

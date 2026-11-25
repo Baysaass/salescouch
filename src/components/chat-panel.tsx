@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ArrowUp, Bot, Check, ChevronDown, Copy, Eraser, Mail, Share2, ShieldCheck, Sparkles, Square, UserPlus, X } from 'lucide-react';
 import type { ContactDTO, MessageDTO } from './types';
-import { Avatar, IconButton, gmailComposeUrl } from './ui';
+import { Avatar, IconButton, ProVerifiedBadge, gmailComposeUrl } from './ui';
 import { clsx } from './clsx';
 import { QUICK_ACTIONS, SKILLS, SKILL_MAP } from '@/lib/skills';
 
@@ -77,7 +77,9 @@ export function ChatPanel({ contact, messages, streaming, aiEnabled, onSend, onC
             {contact.isOwner === false && contact.sharedBy && (
               <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-medium text-brand">
                 <Share2 className="h-3 w-3" />
-                {contact.sharedBy.name || contact.sharedBy.email} хуваалцсан
+                <span>{contact.sharedBy.name || contact.sharedBy.email}</span>
+                {contact.sharedBy.plan === 'pro' && <ProVerifiedBadge size={12} />}
+                <span>хуваалцсан</span>
               </span>
             )}
           </div>

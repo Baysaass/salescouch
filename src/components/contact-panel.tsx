@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import type { ContactDTO } from './types';
 import type { ContactChannels } from '@/db/schema';
-import { Avatar, gmailComposeUrl } from './ui';
+import { Avatar, ProVerifiedBadge, gmailComposeUrl } from './ui';
 import { ContactFormModal } from './contact-form';
 import { CHANNEL_FIELDS, PERSONA_FIELDS, STAGE_LABELS, TEMPERATURE_LABELS } from '@/lib/labels';
 import { clsx } from './clsx';
@@ -121,8 +121,12 @@ export function ContactPanel({ contact, aiEnabled, onSaved, onShare, onDelete }:
             <Share2 className="h-3.5 w-3.5" />
             <span>Тантай хуваалцсан харилцагч</span>
           </div>
-          <p className="mt-1 text-ink">
-            Илгээсэн: <span className="font-medium">{contact.sharedBy.name || contact.sharedBy.email}</span>{' '}
+          <p className="mt-1 flex flex-wrap items-center gap-1 text-ink">
+            <span>Илгээсэн:</span>
+            <span className="inline-flex items-center gap-1 font-medium">
+              {contact.sharedBy.name || contact.sharedBy.email}
+              {contact.sharedBy.plan === 'pro' && <ProVerifiedBadge size={13} />}
+            </span>
             <span className="text-ink-2">({contact.sharedBy.email})</span>
           </p>
           {contact.sharedBy.note && (
@@ -152,9 +156,10 @@ export function ContactPanel({ contact, aiEnabled, onSaved, onShare, onDelete }:
             {contact.sharedWith!.map((s) => (
               <span
                 key={s.userId}
-                className="rounded-full border border-line bg-white px-2.5 py-0.5 text-[11px] font-medium text-ink"
+                className="inline-flex items-center gap-1 rounded-full border border-line bg-white px-2.5 py-0.5 text-[11px] font-medium text-ink"
               >
-                {s.name || s.email}
+                <span>{s.name || s.email}</span>
+                {s.plan === 'pro' && <ProVerifiedBadge size={12} />}
               </span>
             ))}
           </div>

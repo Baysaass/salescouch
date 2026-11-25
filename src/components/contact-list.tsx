@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Plus, Share2, UserPlus } from 'lucide-react';
 import type { ContactDTO } from './types';
-import { Avatar, relTime } from './ui';
+import { Avatar, ProVerifiedBadge, relTime } from './ui';
 import { clsx } from './clsx';
 import { STAGE_LABELS } from '@/lib/labels';
 
@@ -121,7 +121,8 @@ export function ContactList({ contacts, loading, query, selectedId, onSelect, on
               {c.isOwner === false && c.sharedBy ? (
                 <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-brand-soft px-2 py-0.5 text-[10.5px] font-medium text-brand">
                   <Share2 className="h-2.5 w-2.5" />
-                  Ирсэн · {c.sharedBy.name || c.sharedBy.email}
+                  <span>Ирсэн · {c.sharedBy.name || c.sharedBy.email}</span>
+                  {c.sharedBy.plan === 'pro' && <ProVerifiedBadge size={12} />}
                 </span>
               ) : (c.sharedWith?.length ?? 0) > 0 ? (
                 <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-[#eef2f6] px-2 py-0.5 text-[10.5px] font-medium text-ink-2">

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { asc, ne } from 'drizzle-orm';
 import { getDb, schema } from '@/db';
-import { requireUser } from '@/lib/api';
+import { isProByEnv, requireUser } from '@/lib/api';
 
 export async function GET(req: Request) {
   const userId = await requireUser();
@@ -17,6 +17,7 @@ export async function GET(req: Request) {
       email: schema.users.email,
       name: schema.users.name,
       image: schema.users.image,
+      plan: schema.users.plan,
     })
     .from(schema.users)
     .where(ne(schema.users.id, userId))
@@ -30,6 +31,13 @@ export async function GET(req: Request) {
         (u.name ?? '').toLowerCase().includes(q)
       );
     })
+    .map((u) => ({
+      id: u.id,
+      email: u.email,
+      name: u.name,
+      image: u.image,
+      plan: u.plan === 'pro' || isProByEnv(u.email) ? 'pro' : 'free',
+    }))
     .sort((a, b) => {
       const aGmail = a.email.toLowerCase().endsWith('@gmail.com') ? 0 : 1;
       const bGmail = b.email.toLowerCase().endsWith('@gmail.com') ? 0 : 1;

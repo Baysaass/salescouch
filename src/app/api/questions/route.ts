@@ -67,6 +67,7 @@ export async function POST(req: Request) {
   return NextResponse.json(
     {
       ...created,
+      authorPlan: user.plan,
       commentsCount: 0,
       userVote: null,
       likedBy: [],

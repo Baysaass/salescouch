@@ -25,7 +25,7 @@ import {
 import type { ContactDTO, QuestionClusterDTO, QuestionCommentDTO, QuestionDTO, SynthesizedQuestionDTO, VoterInfoDTO } from './types';
 import { extractHashtags, SUGGESTED_HASHTAGS, tagBadgeColor } from '@/lib/default-questions';
 import type { UserPlan } from '@/lib/api';
-import { Avatar } from './ui';
+import { Avatar, ProVerifiedBadge } from './ui';
 import { clsx } from './clsx';
 
 interface Props {
@@ -951,7 +951,10 @@ export function QuestionsView({
                     <Avatar name={currentUser.name || currentUser.email} image={currentUser.image} size={36} />
                     <div className="min-w-0 flex-1 space-y-2.5">
                       <div className="flex items-center justify-between">
-                        <span className="text-[13.5px] font-semibold text-ink">{currentUser.name || currentUser.email}</span>
+                        <span className="inline-flex items-center gap-1 text-[13.5px] font-semibold text-ink">
+                          <span>{currentUser.name || currentUser.email}</span>
+                          {isPro && <ProVerifiedBadge size={15} />}
+                        </span>
                         <button
                           type="button"
                           onClick={() => setComposerOpen(false)}
@@ -1124,8 +1127,9 @@ export function QuestionsView({
                           {/* Author Header */}
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
+                              <div className="flex flex-wrap items-center gap-1.5">
                                 <span className="text-[14px] font-semibold text-ink">{q.authorName}</span>
+                                {q.authorPlan === 'pro' && <ProVerifiedBadge size={15} />}
                                 {q.userId === 'system' && (
                                   <span className="rounded-full bg-canvas px-2 py-0.5 text-[10.5px] font-medium text-ink-2">Жишээ</span>
                                 )}
@@ -1287,6 +1291,7 @@ export function QuestionsView({
                                           <div key={v.userId} className="flex items-center gap-1.5">
                                             <Avatar name={v.name} image={v.image} size={18} />
                                             <span className="text-ink">{v.name}</span>
+                                            {v.plan === 'pro' && <ProVerifiedBadge size={12} />}
                                           </div>
                                         ))}
                                       </div>
@@ -1302,6 +1307,7 @@ export function QuestionsView({
                                           <div key={v.userId} className="flex items-center gap-1.5">
                                             <Avatar name={v.name} image={v.image} size={18} />
                                             <span className="text-ink">{v.name}</span>
+                                            {v.plan === 'pro' && <ProVerifiedBadge size={12} />}
                                           </div>
                                         ))}
                                       </div>
@@ -1350,8 +1356,9 @@ export function QuestionsView({
                                         <Avatar name={c.authorName} image={c.authorImage} size={26} />
                                         <div className="min-w-0 flex-1">
                                           <div className="flex items-center justify-between gap-2">
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex items-center gap-1.5">
                                               <span className="text-[12.5px] font-semibold text-ink">{c.authorName}</span>
+                                              {c.authorPlan === 'pro' && <ProVerifiedBadge size={13} />}
                                               <span className="text-[11px] text-ink-3">{formatShortTime(c.createdAt)}</span>
                                             </div>
                                             {canDeleteComment && (

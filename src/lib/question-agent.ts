@@ -3,6 +3,7 @@ import { desc, eq, inArray, sql } from 'drizzle-orm';
 import type { getDb } from '@/db';
 import { schema } from '@/db';
 import type { Contact, PersonaMatch, Question, QuestionCluster, QuestionComment } from '@/db/schema';
+import { getProUserIds } from './api';
 import { DEFAULT_QUESTIONS } from './default-questions';
 
 const aiEnabled = () => Boolean(process.env.OPENAI_API_KEY);
@@ -818,6 +819,7 @@ export interface VoterInfo {
   userId: string;
   name: string;
   image: string | null;
+  plan?: 'pro' | 'free';
 }
 
 /** Асуултуудыг Like/Unlike жагсаалт болон сэтгэгдлийн тоотой буцаана; includeInsights=true зөвхөн Pro багцад */
@@ -859,6 +861,10 @@ export async function fetchQuestionsFeed(
     .orderBy(...sortOrder);
 
   const allVotes = await db.select().from(schema.questionVotes);
+  const proIds = await getProUserIds([
+    ...rows.map((r) => r.userId),
+    ...allVotes.map((v) => v.userId),
+  ]);
   const likesByQ = new Map<string, VoterInfo[]>();
   const unlikesByQ = new Map<string, VoterInfo[]>();
   const myVoteByQ = new Map<string, 'like' | 'unlike'>();
@@ -868,6 +874,7 @@ export async function fetchQuestionsFeed(
       userId: v.userId,
       name: v.voterName || v.userId.split('@')[0] || 'Хэрэглэгч',
       image: v.voterImage ?? null,
+      plan: proIds.has(v.userId.toLowerCase()) ? 'pro' : 'free',
     };
     if (v.voteType === 'unlike') {
       const arr = unlikesByQ.get(v.questionId) ?? [];
@@ -901,6 +908,7 @@ export async function fetchQuestionsFeed(
       userId: r.userId,
       authorName: r.authorName,
       authorImage: r.authorImage,
+      authorPlan: (proIds.has(r.userId.toLowerCase()) ? 'pro' : 'free') as 'pro' | 'free',
       category: r.category,
       tags: Array.isArray(r.tags) ? r.tags : [],
       title: r.title,

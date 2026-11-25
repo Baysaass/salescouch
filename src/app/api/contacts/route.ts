@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { asc, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { getDb, schema } from '@/db';
-import { requireUser } from '@/lib/api';
+import { isProByEnv, requireUser } from '@/lib/api';
 import { clean, contactInput } from '@/lib/validators';
 
 export async function GET() {
@@ -20,6 +20,7 @@ export async function GET() {
       ownerEmail: schema.users.email,
       ownerName: schema.users.name,
       ownerImage: schema.users.image,
+      ownerPlan: schema.users.plan,
     })
     .from(schema.contactShares)
     .leftJoin(schema.users, eq(schema.contactShares.ownerUserId, schema.users.id))
@@ -33,6 +34,7 @@ export async function GET() {
         email: s.ownerEmail || s.ownerUserId,
         name: s.ownerName || s.ownerUserId.split('@')[0],
         image: s.ownerImage ?? null,
+        plan: (s.ownerPlan === 'pro' || isProByEnv(s.ownerEmail || s.ownerUserId) ? 'pro' : 'free') as 'pro' | 'free',
         note: s.note ?? null,
         sharedAt: s.sharedAt.toISOString(),
       },
@@ -59,7 +61,7 @@ export async function GET() {
   const ownedIds = rows.filter((r) => r.contact.userId === userId).map((r) => r.contact.id);
   const sharedWithMap = new Map<
     string,
-    { userId: string; email: string; name: string | null; image: string | null; note: string | null; sharedAt: string }[]
+    { userId: string; email: string; name: string | null; image: string | null; plan: 'pro' | 'free'; note: string | null; sharedAt: string }[]
   >();
 
   if (ownedIds.length > 0) {
@@ -72,6 +74,7 @@ export async function GET() {
         email: schema.users.email,
         name: schema.users.name,
         image: schema.users.image,
+        plan: schema.users.plan,
       })
       .from(schema.contactShares)
       .innerJoin(schema.users, eq(schema.contactShares.sharedWithUserId, schema.users.id))
@@ -85,6 +88,7 @@ export async function GET() {
         email: s.email,
         name: s.name,
         image: s.image,
+        plan: s.plan === 'pro' || isProByEnv(s.email) ? 'pro' : 'free',
         note: s.note,
         sharedAt: s.sharedAt.toISOString(),
       });

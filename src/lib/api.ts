@@ -1,6 +1,6 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import { auth } from '@/auth';
 import { getDb, schema } from '@/db';
 
@@ -8,13 +8,35 @@ export type UserPlan = 'free' | 'pro';
 
 const ensuredUsers = new Set<string>();
 
-function isProByEnv(email?: string | null): boolean {
+export function isProByEnv(email?: string | null): boolean {
   if (!email) return false;
   const list = (process.env.PRO_EMAILS || '')
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
   return list.includes(email.toLowerCase());
+}
+
+export async function getProUserIds(userIds: string[]): Promise<Set<string>> {
+  const unique = Array.from(new Set(userIds.map((u) => u.trim().toLowerCase()).filter(Boolean)));
+  const proSet = new Set<string>();
+  for (const id of unique) {
+    if (isProByEnv(id)) proSet.add(id);
+  }
+  if (unique.length === 0) return proSet;
+  try {
+    const db = await getDb();
+    const rows = await db
+      .select({ id: schema.users.id, email: schema.users.email, plan: schema.users.plan })
+      .from(schema.users)
+      .where(inArray(schema.users.id, unique));
+    for (const r of rows) {
+      if (r.plan === 'pro' || isProByEnv(r.email)) {
+        proSet.add(r.id.toLowerCase());
+      }
+    }
+  } catch {}
+  return proSet;
 }
 
 async function ensureSessionUserRow(
@@ -114,6 +136,7 @@ export async function listContactShares(contactId: string) {
       email: schema.users.email,
       name: schema.users.name,
       image: schema.users.image,
+      plan: schema.users.plan,
     })
     .from(schema.contactShares)
     .innerJoin(schema.users, eq(schema.contactShares.sharedWithUserId, schema.users.id))
@@ -125,6 +148,7 @@ export async function listContactShares(contactId: string) {
     email: r.email,
     name: r.name,
     image: r.image,
+    plan: (r.plan === 'pro' || isProByEnv(r.email) ? 'pro' : 'free') as UserPlan,
     note: r.note,
     sharedAt: r.sharedAt.toISOString(),
   }));

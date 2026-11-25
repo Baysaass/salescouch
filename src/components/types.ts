@@ -1,10 +1,12 @@
 import type { ContactChannels, ContactPersona, PersonaMatch } from '@/db/schema';
+import type { UserPlan } from '@/lib/api';
 
 export interface ContactShareInfoDTO {
   userId: string;
   email: string;
   name: string | null;
   image: string | null;
+  plan?: UserPlan;
   note?: string | null;
   sharedAt: string;
 }
@@ -14,6 +16,7 @@ export interface RegisteredUserDTO {
   email: string;
   name: string | null;
   image: string | null;
+  plan?: UserPlan;
 }
 
 export interface ContactDTO {
@@ -51,6 +54,7 @@ export interface VoterInfoDTO {
   userId: string;
   name: string;
   image: string | null;
+  plan?: UserPlan;
 }
 
 export interface QuestionDTO {
@@ -58,6 +62,7 @@ export interface QuestionDTO {
   userId: string;
   authorName: string;
   authorImage: string | null;
+  authorPlan?: UserPlan;
   category: string;
   tags: string[];
   title: string;
@@ -110,6 +115,7 @@ export interface QuestionCommentDTO {
   userId: string;
   authorName: string;
   authorImage: string | null;
+  authorPlan?: UserPlan;
   content: string;
   createdAt: string;
 }
